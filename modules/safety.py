@@ -5,6 +5,8 @@ SAFE_HAVENS = [
     {"id": "SH_01", "name": "Assam Rifles Cantonment", "lat": 26.15, "lng": 91.76, "type": "MILITARY_BASE", "capacity": 5000},
     {"id": "SH_02", "name": "Don Bosco High School", "lat": 26.12, "lng": 91.74, "type": "RELIEF_CAMP", "capacity": 1200},
     {"id": "SH_03", "name": "Civil Hospital Shillong", "lat": 25.57, "lng": 91.89, "type": "MEDICAL", "capacity": 300},
+    {"id": "SH_04", "name": "Kohima Science College", "lat": 25.66, "lng": 94.10, "type": "RELIEF_CAMP", "capacity": 2000},
+    {"id": "SH_05", "name": "Dimapur Airport Shelter", "lat": 25.88, "lng": 93.77, "type": "LOGISTICS", "capacity": 5000}
 ]
 
 def haversine_distance(lat1, lon1, lat2, lon2):
