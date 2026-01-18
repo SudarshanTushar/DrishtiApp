@@ -15,7 +15,6 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# --- 1. ANALYSIS ENDPOINT ---
 @app.get("/analyze")
 def analyze_route(start_lat: float, start_lng: float, end_lat: float, end_lng: float, rain_input: int):
     time.sleep(0.5)
@@ -36,40 +35,32 @@ def analyze_route(start_lat: float, start_lng: float, end_lat: float, end_lng: f
         "terrain_type": "Hilly" if start_lat > 26 else "Plain"
     }
 
-# --- 2. REAL VOICE ENDPOINT (SARVAM AI) ---
 @app.post("/listen")
 async def listen_to_voice(file: UploadFile = File(...)):
-    print(f"🎤 Audio Received: {file.filename}")
-    
-    # 1. Get Key from Heroku
+    # 🔑 Get Key from Heroku
     SARVAM_API_KEY = os.getenv("SARVAM_API_KEY") 
     SARVAM_URL = "https://api.sarvam.ai/speech-to-text-translate"
 
     if not SARVAM_API_KEY:
-        print("❌ Error: No API Key found in Heroku Config Vars")
         return {"status": "error", "message": "API Key Missing"}
 
     try:
-        # 2. Prepare the file
+        # Read file correctly
         file_content = await file.read()
         files = {"file": (file.filename, file_content, file.content_type)}
         
-        # ✅ FIX: Use correct header 'api-subscription-key'
+        # ✅ Correct Header for Sarvam
         headers = { "api-subscription-key": SARVAM_API_KEY }
         
-        print("🚀 Sending to Sarvam AI...")
-        
-        # 3. Call the API
+        # Call API
         response = requests.post(SARVAM_URL, headers=headers, files=files)
-        
-        print(f"📡 Sarvam Response Code: {response.status_code}")
         
         if response.status_code == 200:
             data = response.json()
             translated_text = data.get("transcript", "")
             print(f"🗣️ AI Heard: {translated_text}")
             
-            # 4. Determine Destination
+            # Destination Logic
             target = "Unknown"
             text_lower = translated_text.lower()
             if "shillong" in text_lower: target = "Shillong"
@@ -83,7 +74,7 @@ async def listen_to_voice(file: UploadFile = File(...)):
             }
         else:
             print(f"❌ API Error: {response.text}")
-            return {"status": "error", "message": "Failed to transcribe"}
+            return {"status": "error", "message": "Translation Failed"}
 
     except Exception as e:
         print(f"❌ Internal Server Error: {str(e)}")
