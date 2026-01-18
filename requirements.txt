@@ -3,3 +3,8 @@ uvicorn
 python-multipart
 requests
 pydantic
+numpy
+scikit-learn
+shapely
+python-jose[cryptography]
+passlib[bcrypt]
