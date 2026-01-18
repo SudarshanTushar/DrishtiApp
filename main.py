@@ -15,7 +15,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# --- 1. INTELLIGENT ROUTE & EVACUATION ANALYSIS ---
+# --- 1. INTELLIGENT ROUTE & RESCUE DATA ---
 @app.get("/analyze")
 def analyze_route(start_lat: float, start_lng: float, end_lat: float, end_lng: float, rain_input: int):
     # Dynamic Risk Calculation
@@ -27,27 +27,31 @@ def analyze_route(start_lat: float, start_lng: float, end_lat: float, end_lng: f
     elif rain_input > 40:
         base_risk, score = "MODERATE", random.randint(65, 80)
 
-    # --- 1. LIVE HAZARDS (Aas-paas kya ho raha hai) ---
+    # --- LIVE HAZARDS ---
     hazards = [
         {"type": "Landslide", "loc": "Nongpoh", "severity": "High"},
         {"type": "Heavy Rain", "loc": "Barapani", "severity": "Medium"},
-        {"type": "Fog", "loc": "Upper Shillong", "severity": "Low"},
-        {"type": "Road Block", "loc": "Jorabat", "severity": "High"}
+        {"type": "Fog", "loc": "Upper Shillong", "severity": "Low"}
     ]
     current_alerts = random.sample(hazards, 2)
 
-    # --- 2. EVACUATION PLAN (3 Safe Places) ---
-    # Real-world mein ye database se aayega, abhi AI simulate kar raha hai
-    safe_havens = [
-        {"name": "Assam Rifles Camp", "dist": "2.4 km", "type": "Military Base"},
-        {"name": "Don Bosco School", "dist": "3.1 km", "type": "Relief Center"},
-        {"name": "Civil Hospital", "dist": "4.8 km", "type": "Medical Aid"}
+    # --- NEW: MEDICAL & RESCUE LOCATIONS (Map par dikhane ke liye) ---
+    # Real app mein ye database se aayega (Google Maps API style)
+    rescue_spots = [
+        {"name": "Army Base 101", "lat": start_lat + 0.02, "lng": start_lng + 0.01, "type": "MILITARY"},
+        {"name": "Civil Hospital", "lat": start_lat - 0.01, "lng": start_lng + 0.02, "type": "HOSPITAL"},
+        {"name": "NDRF Relief Camp", "lat": start_lat + 0.015, "lng": start_lng - 0.01, "type": "CAMP"}
     ]
-    
+
+    # --- EVACUATION PLAN ---
     evac_plan = {
-        "nearest_risk_zone": "Mile 12 Landslide Area", # Sabse risky jagah
+        "nearest_risk_zone": "Mile 12 Landslide Area", 
         "risk_severity": "EXTREME",
-        "safe_locations": safe_havens # 3 Safe jagah shift hone ke liye
+        "safe_locations": [
+            {"name": "Assam Rifles Camp", "dist": "2.4 km", "type": "Military Base"},
+            {"name": "Don Bosco School", "dist": "3.1 km", "type": "Relief Center"},
+            {"name": "Civil Hospital", "dist": "4.8 km", "type": "Medical Aid"}
+        ]
     }
 
     return {
@@ -55,13 +59,14 @@ def analyze_route(start_lat: float, start_lng: float, end_lat: float, end_lng: f
         "route_risk": base_risk,
         "confidence_score": score,
         "flood_risk": random.randint(rain_input - 10, rain_input + 10),
-        "terrain_type": "Hilly (70%) / Plain (30%)",
+        "terrain_type": "Hilly",
         "sat_status": "ONLINE",
         "live_alerts": current_alerts,
-        "evacuation": evac_plan # Sending Evacuation Data
+        "rescue_spots": rescue_spots, # New Data for Map
+        "evacuation": evac_plan
     }
 
-# --- 2. MULTI-LANG VOICE ENGINE ---
+# --- 2. MULTI-LANG VOICE ENGINE (SAME AS BEFORE) ---
 @app.post("/listen")
 async def listen_to_voice(file: UploadFile = File(...)):
     SARVAM_API_KEY = os.getenv("SARVAM_API_KEY") 
@@ -82,16 +87,12 @@ async def listen_to_voice(file: UploadFile = File(...)):
             translated_text = data.get("transcript", "")
             detected_lang = data.get("language_code", "en-IN")
             
-            print(f"🗣️ User: {translated_text} [{detected_lang}]")
-            
             target = "Unknown"
             txt = translated_text.lower()
             if "shillong" in txt or "silong" in txt: target = "Shillong"
             elif "kohima" in txt: target = "Kohima"
             elif "guwahati" in txt: target = "Guwahati"
             elif "agartala" in txt: target = "Agartala"
-            elif "itanagar" in txt: target = "Itanagar"
-            elif "aizawl" in txt: target = "Aizawl"
 
             return {
                 "status": "success",
