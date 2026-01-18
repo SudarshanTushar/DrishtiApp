@@ -62,7 +62,7 @@ async def listen_to_voice(file: UploadFile = File(...)):
     print(f"🎤 Received Audio File: {file.filename}")
     
     # 🔑 TODO: PASTE YOUR APPROVED API KEY HERE
-    SARVAM_API_KEY = "sk_pnc5sbtu_r64TZyLFiLK8airZBaV7kbOl"
+    SARVAM_API_KEY = "API_KEY"
     SARVAM_URL = "https://api.sarvam.ai/speech-to-text-translate"
 
     try:
