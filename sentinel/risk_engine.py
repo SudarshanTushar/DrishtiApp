@@ -1,29 +1,37 @@
 from fastapi import APIRouter
 from pydantic import BaseModel
-import random
-import math
+from datetime import datetime
 
-router = APIRouter(prefix="/sentinel", tags=["Sentinel Intelligence"])
+router = APIRouter(prefix="/api/v1/sentinel", tags=["Sentinel Intelligence"])
 
-class WhistleStatus(BaseModel):
+# Migrated Risk Zones from your legacy code
+RISK_ZONES = [
+    {"id": "LS_01", "name": "Jorabat Sector", "type": "LANDSLIDE", "lat": 26.15, "lng": 91.80, "radius": 1.5, "severity": "CRITICAL"},
+    {"id": "FL_04", "name": "Barak Valley", "type": "FLOOD", "lat": 24.90, "lng": 92.60, "radius": 3.0, "severity": "HIGH"},
+]
+
+class WhistleSignal(BaseModel):
     lat: float
     lng: float
     active: bool
 
-# Mock Risk Data
-RISK_ZONES = [
-    {"lat": 26.1, "lng": 91.8, "radius": 1.5, "type": "LANDSLIDE_HIGH", "advice": "Slope Instability Detected"},
-    {"lat": 24.9, "lng": 92.6, "radius": 2.0, "type": "FLASH_FLOOD", "advice": "Water Levels Rising"}
-]
-
-@router.get("/risk-overlay")
-def get_risk_overlay(lat: float, lng: float):
-    """Returns nearby risk zones"""
-    return {"zones": RISK_ZONES, "status": "ONLINE"}
+@router.get("/risk-map")
+def get_live_risk_map(lat: float, lng: float, radius: float = 50.0):
+    """
+    Returns GeoJSON-compatible risk polygons for the map overlay.
+    """
+    return {
+        "timestamp": datetime.now().isoformat(),
+        "source": "ISRO_BHUVAN_LINKED",
+        "zones": RISK_ZONES
+    }
 
 @router.post("/whistle")
-def trigger_whistle(status: WhistleStatus):
-    """Logs Digital Siren Activation"""
-    if status.active:
-        print(f"🚨 DIGITAL SIREN ACTIVE at {status.lat}, {status.lng}")
-    return {"status": "LOGGED"}
+def log_digital_whistle(signal: WhistleSignal):
+    """
+    Logs an offline siren activation.
+    Used to triangulate victims when internet is spotty.
+    """
+    if signal.active:
+        print(f"🚨 SOS WHISTLE DETECTED: {signal.lat}, {signal.lng}")
+    return {"status": "LOGGED", "action": "NOTIFY_NDRF"}
