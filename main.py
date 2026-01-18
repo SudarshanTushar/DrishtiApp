@@ -7,9 +7,10 @@ import requests
 import json
 
 # --- IMPORT NEW MODULES ---
+# Ensure you have an empty __init__.py in the modules folder for this to work
 from modules.intelligence import get_risk_heatmap, check_geofence
 from modules.safety import find_nearest_safe_zones
-from ai_engine.risk_routing import RiskGraph # (Assuming this exists from your files)
+from ai_engine.risk_routing import RiskGraph 
 
 app = FastAPI(title="RouteAI-NE: Disaster Intelligence Platform", version="2.0")
 
