@@ -12,7 +12,7 @@ RISK_ZONES = [
 def get_risk_heatmap():
     """
     Returns a GeoJSON-like structure of current active risk zones.
-    Used by Frontend to draw Red overlays on the map.
+    Used by Frontend Map to draw Red overlays.
     """
     # In production, this would fetch from a PostGIS database updated by data_pipeline.py
     active_zones = []
@@ -21,8 +21,8 @@ def get_risk_heatmap():
     weather_factor = random.choice(["CLEAR", "STORM", "CYCLONE"])
     
     for zone in RISK_ZONES:
-        # If storm, risk expands
-        if weather_factor == "STORM":
+        # If storm, risk expands (Simulation logic)
+        if weather_factor == "STORM" or weather_factor == "CYCLONE":
             active_zones.append({
                 **zone,
                 "current_status": "ACTIVE",
