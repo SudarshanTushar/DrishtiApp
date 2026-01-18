@@ -3,13 +3,11 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 import random
 import time
-import requests  # Required for real AI calls (pip install requests)
+import os
 
 app = FastAPI()
 
-# ==========================================
-# 🔌 CORS SETUP (CRITICAL FOR MOBILE APP)
-# ==========================================
+# --- CORS SETUP ---
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -18,26 +16,14 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# --- DATA MODELS ---
-class LocationInput(BaseModel):
-    start_lat: float
-    start_lng: float
-    end_lat: float
-    end_lng: float
-    rain_input: int
-
-# ==========================================
-# 🧠 1. NAVIGATION ENGINE (Risk Analysis)
-# ==========================================
+# --- 1. NAVIGATION ENDPOINT ---
 @app.get("/analyze")
 def analyze_route(start_lat: float, start_lng: float, end_lat: float, end_lng: float, rain_input: int):
-    # Simulate sophisticated AI calculation delay
+    # Simulation Mode (Safe for Demo)
     time.sleep(0.5)
     
-    # Logic: If rain is high, risk is high
     risk_level = "SAFE"
     score = 92
-    
     if rain_input > 70:
         risk_level = "CRITICAL"
         score = 45
@@ -45,7 +31,6 @@ def analyze_route(start_lat: float, start_lng: float, end_lat: float, end_lng: f
         risk_level = "MODERATE"
         score = 75
 
-    # Return Tactical Data
     return {
         "distance": "124.5 km",
         "route_risk": risk_level,
@@ -54,62 +39,17 @@ def analyze_route(start_lat: float, start_lng: float, end_lat: float, end_lng: f
         "terrain_type": "Hilly" if start_lat > 26 else "Plain"
     }
 
-# ==========================================
-# 🎤 2. VOICE LISTENER (Sarvam AI / Bhashini)
-# ==========================================
+# --- 2. VOICE LISTENER ---
 @app.post("/listen")
 async def listen_to_voice(file: UploadFile = File(...)):
-    print(f"🎤 Received Audio File: {file.filename}")
+    print(f"🎤 Received Audio: {file.filename}")
     
-    # 🔑 TODO: PASTE YOUR APPROVED API KEY HERE
-    SARVAM_API_KEY = "API_KEY"
-    SARVAM_URL = "https://api.sarvam.ai/speech-to-text-translate"
-
-    try:
-        # =====================================================
-        # OPTION A: REAL AI MODE (Use when Key is Approved)
-        # =====================================================
-        # Uncomment the lines below to enable real translation:
-        
-        # files = {"file": (file.filename, file.file, file.content_type)}
-        # headers = {"Ocp-Apim-Subscription-Key": SARVAM_API_KEY}
-        # response = requests.post(SARVAM_URL, headers=headers, files=files)
-        # result = response.json()
-        # translated_text = result.get("transcript", "")
-        # print(f"🤖 Real AI Heard: {translated_text}")
-
-        # =====================================================
-        # OPTION B: SIMULATION MODE (For Hackathon Demo)
-        # =====================================================
-        # We simulate that the user said "Navigate to Shillong"
-        print("⚠️ Simulating AI Translation (Demo Mode)...")
-        time.sleep(1.5)
-        
-        simulated_text = "Navigate to Shillong" 
-        # In real mode, change this to: simulated_text = translated_text
-        
-        # Determine Target City logic
-        target_city = "Unknown"
-        if "Shillong" in simulated_text:
-            target_city = "Shillong"
-        elif "Kohima" in simulated_text:
-            target_city = "Kohima"
-        
-        return {
-            "status": "success",
-            "detected_language": "hi-IN",
-            "translated_text": simulated_text,
-            "action": "NAVIGATE",
-            "target": target_city
-        }
-
-    except Exception as e:
-        print(f"❌ Error processing audio: {e}")
-        return {"status": "error", "message": str(e)}
-
-# ==========================================
-# 🚀 HOW TO RUN THIS SERVER
-# ==========================================
-# 1. Open Terminal in 'backend' folder
-# 2. Run: pip install python-multipart requests
-# 3. Run: uvicorn main:app --reload --host 0.0.0.0 --port 8000
+    # Simulation Mode
+    time.sleep(1.5)
+    return {
+        "status": "success",
+        "detected_language": "hi-IN",
+        "translated_text": "Navigate to Shillong",
+        "action": "NAVIGATE",
+        "target": "Shillong"
+    }
