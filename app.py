@@ -1,58 +1,83 @@
-from flask import Flask, request, jsonify
-from flask_cors import CORS
-import joblib
-import pandas as pd
-import os
+from fastapi import FastAPI, UploadFile, File
+from fastapi.middleware.cors import CORSMiddleware
 import time
-from database import db  # Import our new DB layer
-from auth import verify_token, dpdp_mask_data # Import our new Auth layer
+import random
+import os
+import requests
 
-app = Flask(__name__)
-CORS(app)
+app = FastAPI()
 
-print("🔌 [GATEWAY] Connecting to Neural Engine...")
-try:
-    model_path = os.path.join(os.path.dirname(__file__), 'ai_engine', 'landslide_rf.pkl')
-    model = joblib.load(model_path)
-    print("   ✅ AI Model Loaded: ONLINE")
-except:
-    print("   ⚠️ AI Model Missing: Running in Fallback Mode")
-    model = None
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
-@app.route('/transcribe', methods=['POST'])
-def transcribe():
-    # 1. SECURITY CHECK (Simulated)
-    user = verify_token(request.headers.get('Authorization', 'MockToken'))
-    if not user:
-        print("   ⛔ [AUTH] Unauthorized Access Attempt")
-    
-    time.sleep(1.0) # Simulate processing
-    
-    # 2. LOGGING (DPDP Compliant)
-    print("\n🎤 [EVENT] Voice Command Received: 'Report Hazard'")
-    db.log_incident("LANDSLIDE", "Sector-4", user['user_id'])
-    
-    # 3. RUN AI INFERENCE
-    risk_score = 0.88
-    if model:
-        # Fetch geospatial context from DB (Simulated)
-        geo_context = db.query_risk_zone(26.1, 91.7)
+@app.get("/analyze")
+def analyze_route(start_lat: float, start_lng: float, end_lat: float, end_lng: float, rain_input: int):
+    time.sleep(0.5)
+    risk = "SAFE"
+    score = 92
+    if rain_input > 70:
+        risk, score = "CRITICAL", 45
+    elif rain_input > 40:
+        risk, score = "MODERATE", 75
+
+    return {
+        "distance": "124.5 km",
+        "route_risk": risk,
+        "confidence_score": score,
+        "flood_risk": random.randint(10, 90),
+        "terrain_type": "Hilly" if start_lat > 26 else "Plain"
+    }
+
+@app.post("/listen")
+async def listen_to_voice(file: UploadFile = File(...)):
+    SARVAM_API_KEY = os.getenv("SARVAM_API_KEY") 
+    SARVAM_URL = "https://api.sarvam.ai/speech-to-text-translate"
+
+    if not SARVAM_API_KEY:
+        return {"status": "error", "message": "API Key Missing"}
+
+    try:
+        file_content = await file.read()
+        files = {"file": (file.filename, file_content, file.content_type)}
+        headers = { "api-subscription-key": SARVAM_API_KEY }
         
-        input_data = pd.DataFrame([{
-            'slope': 45.0, 'rainfall_24h': 200.0, 'soil_moisture': 90.0,
-            'rock_type_hard': 0, 'vegetation_index': 0.2
-        }])
-        risk_score = float(model.predict(input_data)[0])
-    
-    print(f"   🧠 AI PREDICTION: Risk Score = {risk_score:.4f} (CRITICAL)")
+        # Call Sarvam AI
+        response = requests.post(SARVAM_URL, headers=headers, files=files)
+        
+        if response.status_code == 200:
+            data = response.json()
+            translated_text = data.get("transcript", "")
+            
+            # ✅ DETECT LANGUAGE (Agar Sarvam bhejta hai, nahi toh default 'hi-IN')
+            # Sarvam aksar 'language_code' bhejta hai response mein
+            detected_lang = data.get("language_code", "en-IN") 
+            
+            print(f"🗣️ Detected: {translated_text} | Lang: {detected_lang}")
+            
+            # --- UNIVERSAL DESTINATION FINDER ---
+            target = "Unknown"
+            text_lower = translated_text.lower()
+            
+            if "shillong" in text_lower or "silong" in text_lower: target = "Shillong"
+            elif "kohima" in text_lower: target = "Kohima"
+            elif "guwahati" in text_lower: target = "Guwahati"
+            elif "agartala" in text_lower: target = "Agartala"
+            elif "itanagar" in text_lower: target = "Itanagar"
+            elif "aizawl" in text_lower: target = "Aizawl"
 
-    return jsonify({
-        "text": f"Landslide reported. AI assessed Risk Score: {risk_score:.2f} (CRITICAL).",
-        "intent": "HAZARD_REPORT",
-        "risk_score": risk_score,
-        "status": "success"
-    })
+            return {
+                "status": "success",
+                "translated_text": translated_text,
+                "language_code": detected_lang, # Sending Lang Code to Frontend
+                "target": target
+            }
+        else:
+            return {"status": "error", "message": "Translation Failed"}
 
-if __name__ == '__main__':
-    print("🔥 [SYSTEM ONLINE] Government Gateway Active on Port 5001")
-    app.run(port=5001)
+    except Exception as e:
+        return {"status": "error", "message": str(e)}
