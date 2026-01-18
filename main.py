@@ -3,7 +3,7 @@ from fastapi.middleware.cors import CORSMiddleware
 import time
 import random
 import os
-import requests # Make sure this is imported
+import requests
 
 app = FastAPI()
 
@@ -19,7 +19,6 @@ app.add_middleware(
 @app.get("/analyze")
 def analyze_route(start_lat: float, start_lng: float, end_lat: float, end_lng: float, rain_input: int):
     time.sleep(0.5)
-    # Simple logic for risk calculation
     risk = "SAFE"
     score = 92
     if rain_input > 70:
@@ -51,11 +50,12 @@ async def listen_to_voice(file: UploadFile = File(...)):
         return {"status": "error", "message": "API Key Missing"}
 
     try:
-        # 2. Prepare the file for Sarvam
-        # We must read the file bytes to send them
+        # 2. Prepare the file
         file_content = await file.read()
         files = {"file": (file.filename, file_content, file.content_type)}
-        headers = {"Ocp-Apim-Subscription-Key": SARVAM_API_KEY}
+        
+        # ✅ FIX: Use correct header 'api-subscription-key'
+        headers = { "api-subscription-key": SARVAM_API_KEY }
         
         print("🚀 Sending to Sarvam AI...")
         
@@ -71,12 +71,10 @@ async def listen_to_voice(file: UploadFile = File(...)):
             
             # 4. Determine Destination
             target = "Unknown"
-            if "shillong" in translated_text.lower():
-                target = "Shillong"
-            elif "kohima" in translated_text.lower():
-                target = "Kohima"
-            elif "guwahati" in translated_text.lower():
-                target = "Guwahati"
+            text_lower = translated_text.lower()
+            if "shillong" in text_lower: target = "Shillong"
+            elif "kohima" in text_lower: target = "Kohima"
+            elif "guwahati" in text_lower: target = "Guwahati"
 
             return {
                 "status": "success",
