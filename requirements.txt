@@ -3,8 +3,3 @@ uvicorn
 python-multipart
 requests
 pydantic
-scikit-learn
-numpy
-pandas
-joblib
-xgboost
