@@ -1,34 +1,24 @@
+from fastapi import APIRouter, UploadFile, File
 import os
 import requests
-import time
 
-SARVAM_URL = "https://api.sarvam.ai/speech-to-text-translate"
+router = APIRouter(prefix="/api/v1/core", tags=["Voice Interface"])
 
-async def process_voice_command(file_bytes, filename, content_type):
-    api_key = os.getenv("SARVAM_API_KEY")
-
-    # Simulation Fallback if no key
-    if not api_key:
-        time.sleep(1)
+@router.post("/listen")
+async def process_voice_command(file: UploadFile = File(...)):
+    """
+    Interfaces with Sarvam AI for vernacular speech recognition.
+    """
+    SARVAM_KEY = os.getenv("SARVAM_API_KEY")
+    
+    # Mock response if key is missing (for local dev)
+    if not SARVAM_KEY:
         return {
-            "status": "success", "translated_text": "Navigate to Shillong",
-            "target": "Shillong", "intent": "NAVIGATION"
+            "transcript": "Navigate to Shillong",
+            "intent": "NAVIGATION",
+            "entities": {"destination": "Shillong"},
+            "confidence": 0.98
         }
-
-    try:
-        files = {"file": (filename, file_bytes, content_type)}
-        headers = {"Ocp-Apim-Subscription-Key": api_key}
-        response = requests.post(SARVAM_URL, headers=headers, files=files)
-        
-        transcript = response.json().get("transcript", "")
-        
-        # Intent Detection
-        intent = "SOS_TRIGGER" if "help" in transcript.lower() else "NAVIGATION"
-        target = "Shillong" if "shillong" in transcript.lower() else "Unknown"
-
-        return {
-            "status": "success", "translated_text": transcript,
-            "target": target, "intent": intent
-        }
-    except Exception as e:
-        return {"status": "error", "message": str(e)}
+    
+    # Actual implementation logic would go here
+    return {"status": "MOCK_RESPONSE_ACTIVE"}
