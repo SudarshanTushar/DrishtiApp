@@ -1,32 +1,15 @@
-from fastapi import FastAPI, UploadFile, File, HTTPException
-from fastapi.middleware.cors import CORSMiddleware
-import time
-import random
 import os
+import time
+import math
+import random
 import requests
 import json
-import math
 from datetime import datetime
-
-# --- TRY TO IMPORT EXISTING AI ENGINE (Graceful Fallback) ---
-try:
-    from ai_engine.risk_routing import RiskGraph
-except ImportError:
-    print("⚠️ WARNING: Could not import ai_engine. Using Fallback Routing.")
-    RiskGraph = None
-
-app = FastAPI(title="RouteAI-NE: Disaster Intelligence Platform", version="2.0")
-
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
+from fastapi import FastAPI, UploadFile, File, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
 
 # ==========================================
-# 🧠 INTERNAL INTELLIGENCE MODULE (Merged)
+# 1. SAFETY & INTELLIGENCE DATA (DEFINED ABOVE)
 # ==========================================
 
 # --- MOCK GIS DATA (ISRO Simulation) ---
@@ -43,7 +26,9 @@ SAFE_HAVENS = [
     {"id": "SH_05", "name": "Dimapur Airport Shelter", "lat": 25.88, "lng": 93.77, "type": "LOGISTICS", "capacity": 5000}
 ]
 
+# --- HELPER FUNCTIONS ---
 def haversine_distance(lat1, lon1, lat2, lon2):
+    """Calculates distance between two GPS points in km."""
     R = 6371  # Earth radius in km
     dLat = math.radians(lat2 - lat1)
     dLon = math.radians(lon2 - lon1)
@@ -53,8 +38,42 @@ def haversine_distance(lat1, lon1, lat2, lon2):
     c = 2 * math.atan2(math.sqrt(a), math.sqrt(1-a))
     return R * c
 
+def check_geofence_logic(lat, lng):
+    """Checks if a coordinate is inside a Risk Zone."""
+    for zone in RISK_ZONES:
+        lat_min, lat_max, lng_min, lng_max = zone["bounds"]
+        if lat_min <= lat <= lat_max and lng_min <= lng <= lng_max:
+            return {
+                "in_danger_zone": True,
+                "zone_details": zone,
+                "alert_level": "RED"
+            }
+    return {"in_danger_zone": False, "alert_level": "GREEN"}
+
+# --- TRY TO IMPORT EXISTING AI ENGINE (Graceful Fallback) ---
+try:
+    from ai_engine.risk_routing import RiskGraph
+except ImportError:
+    print("⚠️ WARNING: Could not import ai_engine. Using Fallback Routing.")
+    RiskGraph = None
+
+
 # ==========================================
-# 🛰️ API ENDPOINTS
+# 2. APP INITIALIZATION
+# ==========================================
+
+app = FastAPI(title="RouteAI-NE: Disaster Intelligence Platform", version="2.0")
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+# ==========================================
+# 3. API ENDPOINTS (DEFINED BELOW)
 # ==========================================
 
 @app.get("/api/v2/risk-layer")
@@ -65,7 +84,7 @@ def get_live_risk_layer():
     
     for zone in RISK_ZONES:
         # Simulate dynamic risk activation
-        if weather_factor in ["STORM", "CYCLONE"]:
+        if weather_factor in ["STORM", "CYCLONE", "CLEAR"]: # Always return some data for demo
             active_zones.append({
                 **zone,
                 "current_status": "ACTIVE",
@@ -92,20 +111,10 @@ def get_safe_zones(lat: float, lng: float):
 @app.get("/monitor-location")
 def monitor_location(lat: float, lng: float):
     """Background Sentinel: Checks if user is inside a Risk Zone."""
-    # Check Geofence
-    geofence_status = {"in_danger_zone": False, "alert_level": "GREEN"}
-    
-    for zone in RISK_ZONES:
-        lat_min, lat_max, lng_min, lng_max = zone["bounds"]
-        if lat_min <= lat <= lat_max and lng_min <= lng <= lng_max:
-            geofence_status = {
-                "in_danger_zone": True,
-                "zone_details": zone,
-                "alert_level": "RED"
-            }
-            break
+    # 1. Check Geofence
+    geofence_status = check_geofence_logic(lat, lng)
 
-    # Construct Response
+    # 2. Construct Response
     hazards = []
     if geofence_status["in_danger_zone"]:
         hazards.append({
