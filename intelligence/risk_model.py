@@ -12,7 +12,7 @@ class LandslidePredictor:
 
     def __init__(self):
         self.model = None
-        # Path to your Random Forest Model (Lightweight)
+        # Path to your Random Forest Model (Relative to this file)
         model_path = os.path.join(os.path.dirname(__file__), '../ai_engine/landslide_rf.pkl')
         
         if os.path.exists(model_path):
@@ -42,12 +42,7 @@ class LandslidePredictor:
         if self.model:
             # Safe prediction attempt
             try:
-                # Attempt to use model if feature columns match
-                # input_df = pd.DataFrame([[rain_input, slope]], columns=['rain', 'slope'])
-                # prob = self.model.predict_proba(input_df)[0][1]
-                # ai_score = 100 - int(prob * 100)
-                
-                # Fallback to Logic if columns mismatch during Hackathon
+                # Placeholder for actual model inference
                 ai_score = max(0, 100 - (rain_input * 0.5) - (slope * 0.8))
             except:
                 ai_score = max(0, 100 - (rain_input * 0.5) - (slope * 0.8))
