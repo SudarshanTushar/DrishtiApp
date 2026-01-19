@@ -1,4 +1,4 @@
-from fastapi import FastAPI, UploadFile, File
+from fastapi import FastAPI, UploadFile, File, Form
 from fastapi.middleware.cors import CORSMiddleware
 import time
 import os
@@ -9,6 +9,7 @@ from pydantic import BaseModel
 # --- IMPORT INTELLIGENCE MODULES ---
 from intelligence.governance import SafetyGovernance
 from intelligence.risk_model import LandslidePredictor
+from intelligence.languages import LanguageConfig # NEW IMPORT
 
 app = FastAPI(title="RouteAI-NE Government Backend")
 
@@ -20,15 +21,12 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Initialize Engines
 predictor = LandslidePredictor()
 
 @app.get("/analyze")
 def analyze_route(start_lat: float, start_lng: float, end_lat: float, end_lng: float, rain_input: int):
-    # Step A: Get AI Prediction
     ai_result = predictor.predict(rain_input, start_lat, start_lng)
     
-    # Step B: Apply Governance Rules
     governance_result = SafetyGovernance.validate_risk(
         rain_mm=rain_input, 
         slope_angle=ai_result["slope_angle"], 
@@ -48,6 +46,11 @@ def analyze_route(start_lat: float, start_lng: float, end_lat: float, end_lng: f
         }
     }
 
+# --- NEW: LANGUAGE CONFIG ENDPOINT ---
+@app.get("/languages")
+def get_languages():
+    return LanguageConfig.get_config()
+
 @app.get("/offline-pack")
 def download_offline_intel(region_id: str):
     return {
@@ -57,20 +60,19 @@ def download_offline_intel(region_id: str):
         "safe_zones": [
             {"name": "Guwahati Army Camp", "lat": 26.14, "lng": 91.73},
             {"name": "Shillong Civil Hospital", "lat": 25.57, "lng": 91.88}
-        ],
-        "cached_routes": [
-            {"id": "route_1", "name": "NH6 Primary", "status": "OPEN"}
         ]
     }
 
+# --- UPDATED VOICE HANDLER (MULTI-LANGUAGE) ---
 @app.post("/listen")
-async def listen_to_voice(file: UploadFile = File(...)):
+async def listen_to_voice(file: UploadFile = File(...), language_code: str = Form("hi-IN")):
     SARVAM_API_KEY = os.getenv("SARVAM_API_KEY") 
     SARVAM_URL = "https://api.sarvam.ai/speech-to-text-translate"
 
     try:
         if SARVAM_API_KEY:
             files = {"file": (file.filename, file.file, file.content_type)}
+            # Pass language_code if your API supports it, or handle translation logic here
             headers = {"Ocp-Apim-Subscription-Key": SARVAM_API_KEY}
             response = requests.post(SARVAM_URL, headers=headers, files=files)
             translated_text = response.json().get("transcript", "Navigate to Shillong")
@@ -80,9 +82,14 @@ async def listen_to_voice(file: UploadFile = File(...)):
 
         target_city = "Shillong" if "shillong" in translated_text.lower() else "Unknown"
         
+        # Get response in requested language (Simulated translation for response)
+        fallback_responses = LanguageConfig.OFFLINE_RESPONSES.get(language_code, LanguageConfig.OFFLINE_RESPONSES["en-IN"])
+        voice_reply = f"{fallback_responses['SAFE']} ({target_city})" if target_city != "Unknown" else "Command not understood."
+
         return {
             "status": "success",
             "translated_text": translated_text,
+            "voice_reply": voice_reply, # The text the phone should speak back
             "target": target_city
         }
     except Exception as e:
