@@ -3,8 +3,8 @@ uvicorn
 python-multipart
 requests
 pydantic
-numpy
 scikit-learn
-shapely
-python-jose[cryptography]
-passlib[bcrypt]
+numpy
+pandas
+joblib
+xgboost
