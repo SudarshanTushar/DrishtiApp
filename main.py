@@ -6,14 +6,16 @@ import requests
 import random
 from pydantic import BaseModel
 
-# INTELLIGENCE MODULES
+# MODULES
 from intelligence.governance import SafetyGovernance
 from intelligence.risk_model import LandslidePredictor
 from intelligence.languages import LanguageConfig
 from intelligence.crowdsource import CrowdManager
 from intelligence.analytics import AnalyticsEngine
 from intelligence.iot_network import IoTManager
-from intelligence.logistics import LogisticsManager # NEW IMPORT
+from intelligence.logistics import LogisticsManager
+from intelligence.gis import GISEngine
+from intelligence.simulation import SimulationManager # NEW IMPORT
 
 app = FastAPI(title="RouteAI-NE Government Backend")
 
@@ -37,32 +39,26 @@ class SOSRequest(BaseModel):
     lng: float
     type: str = "MEDICAL"
 
-# --- NEW: SOS DISPATCH ENDPOINT ---
-@app.post("/sos/dispatch")
-def dispatch_rescue(request: SOSRequest):
+# --- NEW: SIMULATION CONTROLS ---
+@app.post("/admin/simulate/start")
+def start_simulation(scenario: str = "FLASH_FLOOD"):
     """
-    Triggered when a user presses the SOS button.
-    Allocates the nearest asset.
+    Triggers a fake disaster to test system response.
     """
-    mission = LogisticsManager.request_dispatch(request.lat, request.lng)
-    
-    if mission:
-        return {"status": "success", "mission": mission}
-    else:
-        return {"status": "failed", "message": "All units busy. Queued for next available."}
+    # Default to Guwahati for demo
+    return SimulationManager.start_scenario(scenario, 26.14, 91.73)
 
-# --- EXISTING ENDPOINTS (Keep unchanged) ---
-@app.get("/iot/feed")
-def get_iot_feed():
-    data = IoTManager.get_live_readings()
-    alert = IoTManager.check_critical_breach(data)
-    return {"sensors": data, "system_alert": alert}
+@app.post("/admin/simulate/stop")
+def stop_simulation():
+    return SimulationManager.stop_simulation()
 
+# --- MODIFIED: ANALYZE ENDPOINT (Aware of Simulation) ---
 @app.get("/analyze")
 def analyze_route(start_lat: float, start_lng: float, end_lat: float, end_lng: float, rain_input: int):
-    # (Existing Logic)
     ai_result = predictor.predict(rain_input, start_lat, start_lng)
     governance_result = SafetyGovernance.validate_risk(rain_input, ai_result["slope_angle"], ai_result["ai_score"])
+    
+    # 1. Check Crowd
     crowd_intel = CrowdManager.evaluate_zone(start_lat, start_lng)
     
     final_risk = governance_result["risk"]
@@ -74,13 +70,20 @@ def analyze_route(start_lat: float, start_lng: float, end_lat: float, end_lng: f
         final_reason = f"LIVE HAZARD: {crowd_intel['source']}"
         final_source = "Citizen Sentinel Network"
 
-    # IOT Override
+    # 2. Check IoT (Now includes Simulation Data)
     iot_feed = IoTManager.get_live_readings()
     breach = IoTManager.check_critical_breach(iot_feed)
     if breach:
         final_risk = "CRITICAL"
         final_reason = breach["message"]
-        final_source = "IoT Sensor Grid"
+        final_source = "IoT Sensor Grid (ALERT)"
+
+    # 3. Check Simulation Direct Override
+    sim_state = SimulationManager.get_overrides()
+    if sim_state["active"]:
+        final_risk = "CRITICAL"
+        final_reason = f"DRILL ACTIVE: {sim_state['scenario']} SCENARIO"
+        final_source = "National Command Authority (DRILL)"
 
     return {
         "distance": f"{random.randint(110, 140)}.5 km",
@@ -94,6 +97,34 @@ def analyze_route(start_lat: float, start_lng: float, end_lat: float, end_lng: f
             "soil": ai_result["soil_type"]
         }
     }
+
+# --- EXISTING ENDPOINTS ---
+@app.get("/gis/layers")
+def get_gis_layers(lat: float, lng: float):
+    # If simulation active, show massive red zones
+    sim_state = SimulationManager.get_overrides()
+    if sim_state["active"]:
+        return {
+            "flood_zones": [{
+                "id": "SIM_FLOOD", "risk_level": "CRITICAL",
+                "coordinates": [[lat+0.05, lng-0.05], [lat+0.05, lng+0.05], [lat-0.05, lng+0.05], [lat-0.05, lng-0.05]],
+                "info": "SIMULATED DISASTER ZONE"
+            }],
+            "landslide_clusters": []
+        }
+    return GISEngine.get_risk_layers(lat, lng)
+
+@app.post("/sos/dispatch")
+def dispatch_rescue(request: SOSRequest):
+    mission = LogisticsManager.request_dispatch(request.lat, request.lng)
+    if mission: return {"status": "success", "mission": mission}
+    else: return {"status": "failed", "message": "All units busy."}
+
+@app.get("/iot/feed")
+def get_iot_feed():
+    data = IoTManager.get_live_readings()
+    alert = IoTManager.check_critical_breach(data)
+    return {"sensors": data, "system_alert": alert}
 
 @app.get("/admin/stats")
 def get_admin_stats(): return AnalyticsEngine.get_live_stats()
@@ -116,7 +147,7 @@ def download_offline_intel(region_id: str):
     return {
         "region": "NE-Sector-Alpha",
         "timestamp": time.time(),
-        "emergency_contacts": ["112", "108", "0361-222222"],
+        "emergency_contacts": ["112", "108"],
         "safe_zones": [{"name": "Guwahati Army Camp", "lat": 26.14, "lng": 91.73}]
     }
 
