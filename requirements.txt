@@ -7,6 +7,5 @@ scikit-learn
 numpy
 pandas
 joblib
-xgboost
 geopandas
 rasterio
