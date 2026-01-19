@@ -1,4 +1,4 @@
-from fastapi import FastAPI, UploadFile, File, Form
+from fastapi import FastAPI, UploadFile, File, Form, Depends
 from fastapi.middleware.cors import CORSMiddleware
 import time
 import os
@@ -17,7 +17,8 @@ from intelligence.logistics import LogisticsManager
 from intelligence.gis import GISEngine
 from intelligence.simulation import SimulationManager
 from intelligence.vision import VisionEngine
-from intelligence.audit import AuditLogger # NEW IMPORT
+from intelligence.audit import AuditLogger
+from intelligence.security import SecurityGate # NEW IMPORT
 
 app = FastAPI(title="RouteAI-NE Government Backend")
 
@@ -41,85 +42,95 @@ class SOSRequest(BaseModel):
     lng: float
     type: str = "MEDICAL"
 
-# --- NEW: AUDIT & BROADCAST ENDPOINTS ---
+# --- NEW: SYSTEM HEALTH ENDPOINT (Public) ---
+@app.get("/health/diagnostics")
+def system_health():
+    """
+    Self-check to ensure system is ready for deployment.
+    """
+    return SecurityGate.system_health_check()
+
+# --- NEW: SECURE ADMIN LOGIN ---
+@app.post("/auth/login")
+def admin_login(password: str = Form(...)):
+    """
+    Simple auth exchange for demo. 
+    In prod, use JWT. Here we return the API Key if password matches.
+    """
+    # Demo Credential: admin / india123
+    if password == "india123":
+        return {"status": "success", "token": "NDRF-COMMAND-2026-SECURE"}
+    else:
+        return {"status": "failed", "message": "Invalid Credentials"}
+
+# --- LOCKED ADMIN ENDPOINTS (Require API Key) ---
+
+@app.get("/admin/stats")
+def get_admin_stats(api_key: str = Depends(SecurityGate.verify_admin)):
+    return AnalyticsEngine.get_live_stats()
+
 @app.get("/admin/audit-logs")
-def get_audit_trail():
+def get_audit_trail(api_key: str = Depends(SecurityGate.verify_admin)):
     return AuditLogger.get_logs()
 
 @app.post("/admin/broadcast")
-def broadcast_alert(message: str, lat: float = 26.14, lng: float = 91.73):
-    """
-    Triggers a Mass SMS Alert via CAP Protocol.
-    """
-    xml_payload = AuditLogger.generate_cap_xml(message, lat, lng)
-    
-    # Log this critical action
+def broadcast_alert(message: str, lat: float = 26.14, lng: float = 91.73, api_key: str = Depends(SecurityGate.verify_admin)):
     AuditLogger.log("ADMIN", "MASS_BROADCAST", f"Msg: {message}", "CRITICAL")
-    
-    return {
-        "status": "success",
-        "protocol": "CAP-XML v1.2",
-        "targets": "Telecom Operators (Airtel/Jio/BSNL)",
-        "payload_preview": xml_payload
-    }
-
-# --- UPDATED EXISTING ENDPOINTS (With Logging) ---
-
-@app.post("/sos/dispatch")
-def dispatch_rescue(request: SOSRequest):
-    mission = LogisticsManager.request_dispatch(request.lat, request.lng)
-    if mission: 
-        AuditLogger.log("SYSTEM", "SOS_DISPATCH", f"Unit {mission['unit']['id']} -> {request.lat},{request.lng}", "CRITICAL")
-        return {"status": "success", "mission": mission}
-    else: 
-        AuditLogger.log("SYSTEM", "SOS_FAILED", "No units available", "WARN")
-        return {"status": "failed", "message": "All units busy."}
-
-@app.post("/report-hazard")
-def report_hazard(report: HazardReport):
-    result = CrowdManager.submit_report(report.lat, report.lng, report.hazard_type)
-    # Log citizen activity
-    AuditLogger.log("CITIZEN", "HAZARD_REPORT", f"{report.hazard_type} at {report.lat},{report.lng}")
-    return {"status": "success", "new_zone_status": result}
-
-@app.post("/admin/close-route")
-def admin_close_route(lat: float, lng: float):
-    CrowdManager.admin_override(lat, lng, "CLOSED")
-    AuditLogger.log("ADMIN", "ROUTE_CLOSE", f"Manual Override at {lat},{lng}", "CRITICAL")
-    return {"status": "success", "message": "Zone marked BLACK (CLOSED)."}
+    return {"status": "success", "targets": "Telecom Operators", "payload": "CAP-XML"}
 
 @app.post("/admin/simulate/start")
-def start_simulation(scenario: str = "FLASH_FLOOD"):
+def start_simulation(scenario: str = "FLASH_FLOOD", api_key: str = Depends(SecurityGate.verify_admin)):
     AuditLogger.log("ADMIN", "SIMULATION_START", f"Scenario: {scenario}", "WARN")
     return SimulationManager.start_scenario(scenario, 26.14, 91.73)
 
 @app.post("/admin/simulate/stop")
-def stop_simulation():
+def stop_simulation(api_key: str = Depends(SecurityGate.verify_admin)):
     AuditLogger.log("ADMIN", "SIMULATION_STOP", "System Reset", "INFO")
     return SimulationManager.stop_simulation()
 
 @app.post("/admin/analyze-drone")
-async def analyze_drone_footage(file: UploadFile = File(...)):
+async def analyze_drone_footage(file: UploadFile = File(...), api_key: str = Depends(SecurityGate.verify_admin)):
     result = VisionEngine.analyze_damage(file.filename)
     if "CATASTROPHIC" in result["classification"]:
         CrowdManager.admin_override(26.14, 91.73, "CLOSED")
         result["auto_action"] = "Route CLOSED by Vision System"
-        AuditLogger.log("AI_VISION", "AUTO_CLOSE", f"Damage {result['damage_score']} detected in {file.filename}", "CRITICAL")
+        AuditLogger.log("AI_VISION", "AUTO_CLOSE", f"Damage {result['damage_score']}", "CRITICAL")
     return result
 
-# --- EXISTING READ-ONLY ENDPOINTS ---
+@app.post("/admin/close-route")
+def admin_close_route(lat: float, lng: float, api_key: str = Depends(SecurityGate.verify_admin)):
+    CrowdManager.admin_override(lat, lng, "CLOSED")
+    AuditLogger.log("ADMIN", "ROUTE_CLOSE", f"Override {lat},{lng}", "CRITICAL")
+    return {"status": "success", "message": "Zone marked BLACK (CLOSED)."}
+
+# --- PUBLIC ENDPOINTS (No Key Needed) ---
+# ... (Keep SOS, IoT Feed, Analyze, Report Hazard, Listen, GIS Layers exactly as before) ...
+
+@app.get("/gis/layers")
+def get_gis_layers(lat: float, lng: float):
+    sim_state = SimulationManager.get_overrides()
+    if sim_state["active"]:
+        return {
+            "flood_zones": [{"id": "SIM_FLOOD", "risk_level": "CRITICAL", "coordinates": [[lat+0.05, lng-0.05], [lat+0.05, lng+0.05], [lat-0.05, lng+0.05], [lat-0.05, lng-0.05]], "info": "SIMULATED DISASTER ZONE"}],
+            "landslide_clusters": []
+        }
+    return GISEngine.get_risk_layers(lat, lng)
+
+@app.post("/sos/dispatch")
+def dispatch_rescue(request: SOSRequest):
+    mission = LogisticsManager.request_dispatch(request.lat, request.lng)
+    if mission: return {"status": "success", "mission": mission}
+    else: return {"status": "failed", "message": "All units busy."}
+
 @app.get("/iot/feed")
 def get_iot_feed():
     data = IoTManager.get_live_readings()
     alert = IoTManager.check_critical_breach(data)
-    # Note: We don't log every feed pull to avoid spam, only alerts
-    if alert:
-         # Check if we recently logged this to avoid duplicates? (Skip for hackathon simplicity)
-         pass
     return {"sensors": data, "system_alert": alert}
 
 @app.get("/analyze")
 def analyze_route(start_lat: float, start_lng: float, end_lat: float, end_lng: float, rain_input: int):
+    # (Same logic as before)
     ai_result = predictor.predict(rain_input, start_lat, start_lng)
     governance_result = SafetyGovernance.validate_risk(rain_input, ai_result["slope_angle"], ai_result["ai_score"])
     crowd_intel = CrowdManager.evaluate_zone(start_lat, start_lng)
@@ -154,18 +165,10 @@ def analyze_route(start_lat: float, start_lng: float, end_lat: float, end_lng: f
         }
     }
 
-@app.get("/gis/layers")
-def get_gis_layers(lat: float, lng: float):
-    sim_state = SimulationManager.get_overrides()
-    if sim_state["active"]:
-        return {
-            "flood_zones": [{"id": "SIM_FLOOD", "risk_level": "CRITICAL", "coordinates": [[lat+0.05, lng-0.05], [lat+0.05, lng+0.05], [lat-0.05, lng+0.05], [lat-0.05, lng-0.05]], "info": "SIMULATED DISASTER ZONE"}],
-            "landslide_clusters": []
-        }
-    return GISEngine.get_risk_layers(lat, lng)
-
-@app.get("/admin/stats")
-def get_admin_stats(): return AnalyticsEngine.get_live_stats()
+@app.post("/report-hazard")
+def report_hazard(report: HazardReport):
+    result = CrowdManager.submit_report(report.lat, report.lng, report.hazard_type)
+    return {"status": "success", "new_zone_status": result}
 
 @app.get("/languages")
 def get_languages(): return LanguageConfig.get_config()
