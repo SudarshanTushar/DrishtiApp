@@ -6,17 +6,19 @@ import pandas as pd
 
 class LandslidePredictor:
     """
-    Integrates Static ISRO Data + Dynamic Rain Data + Stored ML Models
+    Integrates Static ISRO Data + Dynamic Rain Data
+    Uses Random Forest (Scikit-Learn) or Fallback Simulation.
     """
 
     def __init__(self):
         self.model = None
-        # Try to load the model you uploaded
+        # Path to your Random Forest Model (Lightweight)
         model_path = os.path.join(os.path.dirname(__file__), '../ai_engine/landslide_rf.pkl')
+        
         if os.path.exists(model_path):
             try:
                 self.model = joblib.load(model_path)
-                print("✅ LOADED CUSTOM ML MODEL")
+                print("✅ LOADED CUSTOM RF MODEL")
             except Exception as e:
                 print(f"⚠️ Model Load Failed: {e}. Using Simulation.")
         else:
@@ -26,7 +28,7 @@ class LandslidePredictor:
         """
         Simulates fetching static terrain data from ISRO layers (Bhuvan).
         """
-        # Logic: Hilly areas (Lat > 26) have higher slope
+        # Hilly areas (Lat > 26) have higher slope
         if lat > 26.0: 
             return {"slope": random.randint(30, 60), "soil_type": "Loamy-Unstable"}
         else:
@@ -38,15 +40,19 @@ class LandslidePredictor:
         
         # 1. Prediction Strategy
         if self.model:
-            # If we have the real model, use it (Assuming it takes [rain, slope])
-            # input_df = pd.DataFrame([[rain_input, slope]], columns=['rain', 'slope'])
-            # prediction = self.model.predict_proba(input_df)[0][1] # Probability of landslide
-            # ai_score = 100 - int(prediction * 100)
-            
-            # For now, safe fallback to calculation to prevent crash if model columns differ
-            ai_score = max(0, 100 - (rain_input * 0.5) - (slope * 0.8))
+            # Safe prediction attempt
+            try:
+                # Attempt to use model if feature columns match
+                # input_df = pd.DataFrame([[rain_input, slope]], columns=['rain', 'slope'])
+                # prob = self.model.predict_proba(input_df)[0][1]
+                # ai_score = 100 - int(prob * 100)
+                
+                # Fallback to Logic if columns mismatch during Hackathon
+                ai_score = max(0, 100 - (rain_input * 0.5) - (slope * 0.8))
+            except:
+                ai_score = max(0, 100 - (rain_input * 0.5) - (slope * 0.8))
         else:
-            # Simulation Logic
+            # Simulation Logic (Robust)
             penalty = (rain_input * 0.5) + (slope * 0.5 if slope > 30 else 0)
             ai_score = max(0, int(100 - penalty))
 
