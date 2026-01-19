@@ -10,7 +10,8 @@ from pydantic import BaseModel
 from intelligence.governance import SafetyGovernance
 from intelligence.risk_model import LandslidePredictor
 from intelligence.languages import LanguageConfig
-from intelligence.crowdsource import CrowdManager # NEW IMPORT
+from intelligence.crowdsource import CrowdManager
+from intelligence.analytics import AnalyticsEngine # NEW IMPORT
 
 app = FastAPI(title="RouteAI-NE Government Backend")
 
@@ -24,33 +25,30 @@ app.add_middleware(
 
 predictor = LandslidePredictor()
 
-# --- DATA MODELS ---
 class HazardReport(BaseModel):
     lat: float
     lng: float
-    hazard_type: str  # LANDSLIDE, FLOOD, BLOCKED
+    hazard_type: str
 
 @app.get("/analyze")
 def analyze_route(start_lat: float, start_lng: float, end_lat: float, end_lng: float, rain_input: int):
-    # 1. AI PREDICTION (Scientific Layer)
+    # 1. AI PREDICTION
     ai_result = predictor.predict(rain_input, start_lat, start_lng)
     
-    # 2. GOVERNANCE (Policy Layer)
+    # 2. GOVERNANCE
     governance_result = SafetyGovernance.validate_risk(
         rain_mm=rain_input, 
         slope_angle=ai_result["slope_angle"], 
         ai_prediction_score=ai_result["ai_score"]
     )
     
-    # 3. CROWD INTEL (Real-time Ground Layer)
-    # Check if citizens have reported issues on this path (Simulated check at Start Node)
+    # 3. CROWD INTEL
     crowd_intel = CrowdManager.evaluate_zone(start_lat, start_lng)
     
     final_risk = governance_result["risk"]
     final_reason = governance_result["reason"]
     final_source = governance_result["source"]
 
-    # CROWD OVERRIDE: If the crowd says it's bad, it's BAD.
     if crowd_intel:
         if crowd_intel["risk"] in ["CRITICAL", "HIGH"]:
             final_risk = crowd_intel["risk"]
@@ -70,25 +68,24 @@ def analyze_route(start_lat: float, start_lng: float, end_lat: float, end_lng: f
         }
     }
 
-# --- NEW: HAZARD REPORTING ENDPOINT ---
+# --- NEW: ADMIN DASHBOARD ENDPOINT ---
+@app.get("/admin/stats")
+def get_admin_stats():
+    """
+    Returns high-level metrics for the Command Center Dashboard.
+    """
+    return AnalyticsEngine.get_live_stats()
+
 @app.post("/report-hazard")
 def report_hazard(report: HazardReport):
-    """
-    Accepts ground reports from users.
-    """
     result = CrowdManager.submit_report(report.lat, report.lng, report.hazard_type)
     return {"status": "success", "new_zone_status": result}
 
-# --- NEW: ADMIN OVERRIDE ENDPOINT ---
 @app.post("/admin/close-route")
 def admin_close_route(lat: float, lng: float):
-    """
-    The 'Kill Switch' for authorities.
-    """
     CrowdManager.admin_override(lat, lng, "CLOSED")
     return {"status": "success", "message": "Zone marked BLACK (CLOSED) across network."}
 
-# ... (Keep /languages, /offline-pack, /listen endpoints exactly as they were) ...
 @app.get("/languages")
 def get_languages():
     return LanguageConfig.get_config()
