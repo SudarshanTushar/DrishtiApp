@@ -11,7 +11,8 @@ from intelligence.governance import SafetyGovernance
 from intelligence.risk_model import LandslidePredictor
 from intelligence.languages import LanguageConfig
 from intelligence.crowdsource import CrowdManager
-from intelligence.analytics import AnalyticsEngine # NEW IMPORT
+from intelligence.analytics import AnalyticsEngine
+from intelligence.iot_network import IoTManager # NEW IMPORT
 
 app = FastAPI(title="RouteAI-NE Government Backend")
 
@@ -55,6 +56,15 @@ def analyze_route(start_lat: float, start_lng: float, end_lat: float, end_lng: f
             final_reason = f"LIVE HAZARD: {crowd_intel['source']}"
             final_source = "Citizen Sentinel Network"
 
+    # 4. IOT OVERRIDE (NEW): If a nearby sensor is CRITICAL, the route is CRITICAL
+    # (Simplified check: assuming sensor is relevant to the route)
+    iot_feed = IoTManager.get_live_readings()
+    breach = IoTManager.check_critical_breach(iot_feed)
+    if breach:
+        final_risk = "CRITICAL"
+        final_reason = breach["message"]
+        final_source = "IoT Sensor Grid (Automated)"
+
     return {
         "distance": f"{random.randint(110, 140)}.5 km",
         "route_risk": final_risk,
@@ -68,12 +78,22 @@ def analyze_route(start_lat: float, start_lng: float, end_lat: float, end_lng: f
         }
     }
 
-# --- NEW: ADMIN DASHBOARD ENDPOINT ---
+# --- NEW: IOT DATA STREAM ---
+@app.get("/iot/feed")
+def get_iot_feed():
+    """
+    Returns real-time data from the sensor network.
+    """
+    data = IoTManager.get_live_readings()
+    alert = IoTManager.check_critical_breach(data)
+    return {
+        "sensors": data,
+        "system_alert": alert
+    }
+
+# --- EXISTING ENDPOINTS (Keep unchanged) ---
 @app.get("/admin/stats")
 def get_admin_stats():
-    """
-    Returns high-level metrics for the Command Center Dashboard.
-    """
     return AnalyticsEngine.get_live_stats()
 
 @app.post("/report-hazard")
