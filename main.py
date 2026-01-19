@@ -15,7 +15,8 @@ from intelligence.analytics import AnalyticsEngine
 from intelligence.iot_network import IoTManager
 from intelligence.logistics import LogisticsManager
 from intelligence.gis import GISEngine
-from intelligence.simulation import SimulationManager # NEW IMPORT
+from intelligence.simulation import SimulationManager
+from intelligence.vision import VisionEngine # NEW IMPORT
 
 app = FastAPI(title="RouteAI-NE Government Backend")
 
@@ -39,69 +40,33 @@ class SOSRequest(BaseModel):
     lng: float
     type: str = "MEDICAL"
 
-# --- NEW: SIMULATION CONTROLS ---
+# --- NEW: DRONE VISION ENDPOINT ---
+@app.post("/admin/analyze-drone")
+async def analyze_drone_footage(file: UploadFile = File(...)):
+    """
+    Uploads drone imagery for AI Damage Assessment.
+    """
+    result = VisionEngine.analyze_damage(file.filename)
+    
+    # If damage is high, automatically trigger a route closure (INTEGRATION)
+    if "CATASTROPHIC" in result["classification"]:
+        # Auto-close the demo coordinates
+        CrowdManager.admin_override(26.14, 91.73, "CLOSED")
+        result["auto_action"] = "Route CLOSED by Vision System"
+        
+    return result
+
+# --- EXISTING ENDPOINTS (Keep unchanged) ---
 @app.post("/admin/simulate/start")
 def start_simulation(scenario: str = "FLASH_FLOOD"):
-    """
-    Triggers a fake disaster to test system response.
-    """
-    # Default to Guwahati for demo
     return SimulationManager.start_scenario(scenario, 26.14, 91.73)
 
 @app.post("/admin/simulate/stop")
 def stop_simulation():
     return SimulationManager.stop_simulation()
 
-# --- MODIFIED: ANALYZE ENDPOINT (Aware of Simulation) ---
-@app.get("/analyze")
-def analyze_route(start_lat: float, start_lng: float, end_lat: float, end_lng: float, rain_input: int):
-    ai_result = predictor.predict(rain_input, start_lat, start_lng)
-    governance_result = SafetyGovernance.validate_risk(rain_input, ai_result["slope_angle"], ai_result["ai_score"])
-    
-    # 1. Check Crowd
-    crowd_intel = CrowdManager.evaluate_zone(start_lat, start_lng)
-    
-    final_risk = governance_result["risk"]
-    final_reason = governance_result["reason"]
-    final_source = governance_result["source"]
-
-    if crowd_intel and crowd_intel["risk"] in ["CRITICAL", "HIGH"]:
-        final_risk = crowd_intel["risk"]
-        final_reason = f"LIVE HAZARD: {crowd_intel['source']}"
-        final_source = "Citizen Sentinel Network"
-
-    # 2. Check IoT (Now includes Simulation Data)
-    iot_feed = IoTManager.get_live_readings()
-    breach = IoTManager.check_critical_breach(iot_feed)
-    if breach:
-        final_risk = "CRITICAL"
-        final_reason = breach["message"]
-        final_source = "IoT Sensor Grid (ALERT)"
-
-    # 3. Check Simulation Direct Override
-    sim_state = SimulationManager.get_overrides()
-    if sim_state["active"]:
-        final_risk = "CRITICAL"
-        final_reason = f"DRILL ACTIVE: {sim_state['scenario']} SCENARIO"
-        final_source = "National Command Authority (DRILL)"
-
-    return {
-        "distance": f"{random.randint(110, 140)}.5 km",
-        "route_risk": final_risk,
-        "confidence_score": governance_result["score"],
-        "reason": final_reason,
-        "source": final_source,
-        "terrain_data": {
-            "type": "Hilly" if start_lat > 26 else "Plain",
-            "slope": f"{ai_result['slope_angle']}°",
-            "soil": ai_result["soil_type"]
-        }
-    }
-
-# --- EXISTING ENDPOINTS ---
 @app.get("/gis/layers")
 def get_gis_layers(lat: float, lng: float):
-    # If simulation active, show massive red zones
     sim_state = SimulationManager.get_overrides()
     if sim_state["active"]:
         return {
@@ -125,6 +90,47 @@ def get_iot_feed():
     data = IoTManager.get_live_readings()
     alert = IoTManager.check_critical_breach(data)
     return {"sensors": data, "system_alert": alert}
+
+@app.get("/analyze")
+def analyze_route(start_lat: float, start_lng: float, end_lat: float, end_lng: float, rain_input: int):
+    ai_result = predictor.predict(rain_input, start_lat, start_lng)
+    governance_result = SafetyGovernance.validate_risk(rain_input, ai_result["slope_angle"], ai_result["ai_score"])
+    crowd_intel = CrowdManager.evaluate_zone(start_lat, start_lng)
+    
+    final_risk = governance_result["risk"]
+    final_reason = governance_result["reason"]
+    final_source = governance_result["source"]
+
+    if crowd_intel and crowd_intel["risk"] in ["CRITICAL", "HIGH"]:
+        final_risk = crowd_intel["risk"]
+        final_reason = f"LIVE HAZARD: {crowd_intel['source']}"
+        final_source = "Citizen Sentinel Network"
+
+    iot_feed = IoTManager.get_live_readings()
+    breach = IoTManager.check_critical_breach(iot_feed)
+    if breach:
+        final_risk = "CRITICAL"
+        final_reason = breach["message"]
+        final_source = "IoT Sensor Grid"
+
+    sim_state = SimulationManager.get_overrides()
+    if sim_state["active"]:
+        final_risk = "CRITICAL"
+        final_reason = f"DRILL ACTIVE: {sim_state['scenario']} SCENARIO"
+        final_source = "National Command Authority (DRILL)"
+
+    return {
+        "distance": f"{random.randint(110, 140)}.5 km",
+        "route_risk": final_risk,
+        "confidence_score": governance_result["score"],
+        "reason": final_reason,
+        "source": final_source,
+        "terrain_data": {
+            "type": "Hilly" if start_lat > 26 else "Plain",
+            "slope": f"{ai_result['slope_angle']}°",
+            "soil": ai_result["soil_type"]
+        }
+    }
 
 @app.get("/admin/stats")
 def get_admin_stats(): return AnalyticsEngine.get_live_stats()
