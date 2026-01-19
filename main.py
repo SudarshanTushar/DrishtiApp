@@ -57,6 +57,9 @@ def download_offline_intel(region_id: str):
         "safe_zones": [
             {"name": "Guwahati Army Camp", "lat": 26.14, "lng": 91.73},
             {"name": "Shillong Civil Hospital", "lat": 25.57, "lng": 91.88}
+        ],
+        "cached_routes": [
+            {"id": "route_1", "name": "NH6 Primary", "status": "OPEN"}
         ]
     }
 
