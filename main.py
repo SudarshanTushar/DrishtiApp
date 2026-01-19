@@ -6,7 +6,7 @@ import requests
 import random
 from pydantic import BaseModel
 
-# --- IMPORT NEW INTELLIGENCE MODULES ---
+# --- IMPORT INTELLIGENCE MODULES ---
 from intelligence.governance import SafetyGovernance
 from intelligence.risk_model import LandslidePredictor
 
@@ -23,13 +23,12 @@ app.add_middleware(
 # Initialize Engines
 predictor = LandslidePredictor()
 
-# --- 1. INTELLIGENT ANALYSIS ---
 @app.get("/analyze")
 def analyze_route(start_lat: float, start_lng: float, end_lat: float, end_lng: float, rain_input: int):
-    # Step A: Get AI Prediction (Data Science Layer)
+    # Step A: Get AI Prediction
     ai_result = predictor.predict(rain_input, start_lat, start_lng)
     
-    # Step B: Apply Non-Negotiable Rules (Governance Layer)
+    # Step B: Apply Governance Rules
     governance_result = SafetyGovernance.validate_risk(
         rain_mm=rain_input, 
         slope_angle=ai_result["slope_angle"], 
@@ -49,12 +48,8 @@ def analyze_route(start_lat: float, start_lng: float, end_lat: float, end_lng: f
         }
     }
 
-# --- 2. OFFLINE SURVIVAL PACK ---
 @app.get("/offline-pack")
 def download_offline_intel(region_id: str):
-    """
-    Downloads critical JSON data for when Internet dies.
-    """
     return {
         "region": "NE-Sector-Alpha",
         "timestamp": time.time(),
@@ -65,7 +60,6 @@ def download_offline_intel(region_id: str):
         ]
     }
 
-# --- 3. SARVAM VOICE API ---
 @app.post("/listen")
 async def listen_to_voice(file: UploadFile = File(...)):
     SARVAM_API_KEY = os.getenv("SARVAM_API_KEY") 
