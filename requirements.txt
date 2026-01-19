@@ -8,3 +8,5 @@ numpy
 pandas
 joblib
 xgboost
+geopandas
+rasterio
