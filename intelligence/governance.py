@@ -1,4 +1,5 @@
-# backend/intelligence/governance.py
+import time
+import uuid
 
 class SafetyGovernance:
     """
@@ -45,4 +46,50 @@ class SafetyGovernance:
             "score": score,
             "reason": reason,
             "source": "RouteAI Fusion Engine"
+        }
+
+class DecisionEngine:
+    """
+    GOVERNANCE LAYER:
+    Converts raw Risk Assessments into Formal Action Proposals.
+    AI generates the 'Draft Order', Human signs the 'Final Order'.
+    """
+    
+    @staticmethod
+    def create_proposal(risk_data, lat, lng):
+        """
+        Input: Risk Dictionary (from SafetyGovernance)
+        Output: A formal 'Decision Proposal' object for the Dashboard Queue.
+        """
+        proposal_id = f"CMD-{str(uuid.uuid4())[:8].upper()}"
+        
+        # 1. Map Risk Level to Standard Operating Procedure (SOP)
+        recommended_action = "MONITOR_ONLY"
+        urgency = "LOW"
+        
+        if risk_data["risk"] == "CRITICAL":
+            recommended_action = "MASS_EVACUATION_ALERT"
+            urgency = "IMMEDIATE"
+        elif risk_data["risk"] == "HIGH":
+            recommended_action = "DEPLOY_NDRF_SCOUT"
+            urgency = "HIGH"
+        elif risk_data["risk"] == "MODERATE":
+            recommended_action = "ISSUE_CITIZEN_ADVISORY"
+            urgency = "MEDIUM"
+            
+        # 2. Structure the Official Proposal
+        return {
+            "id": proposal_id,
+            "timestamp": time.time(),
+            "type": recommended_action,
+            "target_zone": {
+                "lat": lat, 
+                "lng": lng, 
+                "radius": "5km"
+            },
+            "reason": risk_data["reason"],
+            "ai_confidence": risk_data.get("score", 0),
+            "source_intel": risk_data.get("source", "Unknown"),
+            "status": "PENDING_APPROVAL", # Waiting for Human Authorization
+            "urgency": urgency
         }
