@@ -38,13 +38,15 @@ A fully offline-capable ecosystem that combines **Mesh Networking**, **AI Predic
 cd backend
 pip install -r requirements.txt
 uvicorn main:app --reload
+```
 
 2. Frontend (React Native)
 Bash
-
+```
 cd frontend
 npm install
 npm run start
+```
 🌍 Live Links
 
 Backend API: https://drishtiappbackend-9d88613ee49f.herokuapp.com/docs
