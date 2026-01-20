@@ -59,26 +59,3 @@ cd frontend
 npm install
 npm run dev
 ```
-
-
-### **Step 3: Final Deployment**
-
-This is the last code push before you present.
-
-1.  **Commit:**
-    ```bash
-    git add .
-    git commit -m "Phase 36: Final Polish and Documentation"
-    git push origin main
-    ```
-
-2.  **Deploy Backend:**
-    ```bash
-    git push heroku main
-    ```
-
-3.  **Deploy Frontend:**
-    ```bash
-    cd frontend
-    vercel --prod
-    ```
