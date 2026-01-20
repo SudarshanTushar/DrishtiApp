@@ -1,15 +1,14 @@
 # backend/intelligence/security.py
 from fastapi import Request, HTTPException, Security
-from fastapi.security import APIKeyHeader
+from fastapi.security import APIKeyHeader, APIKeyQuery
 import os
 import time
 
-# Define the API Key Header Scheme
-# This tells FastAPI to look for a header named "X-GOV-KEY"
+# Define Strategy: Check Header OR Query Param
 api_key_header = APIKeyHeader(name="X-GOV-KEY", auto_error=False)
+api_key_query = APIKeyQuery(name="api_key", auto_error=False)
 
-# In production, this sits in Heroku Config Vars
-# For demo, we hardcode a "Master Key"
+# The Master Key
 MASTER_ADMIN_KEY = "NDRF-COMMAND-2026-SECURE"
 
 class SecurityGate:
@@ -19,32 +18,31 @@ class SecurityGate:
     """
 
     @staticmethod
-    async def verify_admin(api_key: str = Security(api_key_header)):
+    async def verify_admin(
+        key_header: str = Security(api_key_header),
+        key_query: str = Security(api_key_query)
+    ):
         """
-        Dependency that locks a route. 
-        If key is missing or wrong, throws 403 Forbidden.
+        Locks the route. Checks both Header and URL for the key.
         """
-        if api_key != MASTER_ADMIN_KEY:
-            raise HTTPException(
-                status_code=403, 
-                detail="ACCESS DENIED: Government Clearance Required."
-            )
-        return api_key
+        # 1. Check Header
+        if key_header == MASTER_ADMIN_KEY:
+            return key_header
+        
+        # 2. Check URL Query Param (Backup for Demo)
+        if key_query == MASTER_ADMIN_KEY:
+            return key_query
+            
+        # 3. Fail if neither matches
+        raise HTTPException(
+            status_code=403, 
+            detail="ACCESS DENIED: Government Clearance Required."
+        )
 
     @staticmethod
     def system_health_check():
-        """
-        Runs a diagnostic on all subsystems before 'Go Live'.
-        """
-        diagnostics = {
+        return {
             "status": "OPERATIONAL",
             "timestamp": time.time(),
-            "subsystems": {
-                "AI_ENGINE": "ONLINE (Latency: 120ms)",
-                "IOT_GRID": "CONNECTED (3/3 Nodes)",
-                "DB_AUDIT": "WRITABLE",
-                "SARVAM_VOICE": "READY",
-                "GIS_LAYER": "CACHED"
-            }
+            "subsystems": {"AI": "ONLINE", "IOT": "CONNECTED", "AUTH": "ACTIVE"}
         }
-        return diagnostics
