@@ -73,6 +73,23 @@ def tag_resource(res_type: str, lat: float, lng: float, qty: str, api_key: Optio
     
     return {"status": "success", "resource": new_res}
 
+@app.post("/resources/verify/{res_id}")
+def verify_resource_endpoint(res_id: str, api_key: str = Depends(SecurityGate.verify_admin)):
+    """Commanders can mark a civilian report as OFFICIAL."""
+    success = ResourceSentinel.verify_resource(res_id)
+    if success:
+        AuditLogger.log("COMMANDER", "RESOURCE_VERIFIED", f"ID: {res_id}", "INFO")
+        return {"status": "success", "message": "Resource Verified"}
+    return {"status": "error", "message": "Resource not found"}
+
+@app.delete("/resources/delete/{res_id}")
+def delete_resource_endpoint(res_id: str, api_key: str = Depends(SecurityGate.verify_admin)):
+    """Commanders can remove fake or depleted resources."""
+    success = ResourceSentinel.delete_resource(res_id)
+    if success:
+        return {"status": "success", "message": "Resource Removed"}
+    return {"status": "error", "message": "Resource not found"}
+
 # --- HEALTH CHECK ---
 @app.get("/health/diagnostics")
 def system_health():
