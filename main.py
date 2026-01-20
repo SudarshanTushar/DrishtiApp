@@ -10,6 +10,7 @@ from typing import Optional
 
 # MODULES
 # Updated import to include DecisionEngine
+from intelligence.resources import ResourceSentinel
 from intelligence.governance import SafetyGovernance, DecisionEngine 
 from intelligence.risk_model import LandslidePredictor
 from intelligence.languages import LanguageConfig
@@ -48,6 +49,29 @@ class SOSRequest(BaseModel):
     lat: float
     lng: float
     type: str = "MEDICAL"
+
+# --- RESOURCE MESH ENDPOINTS ---
+
+@app.get("/resources/list")
+def list_resources():
+    """Returns all known resource points (Water, Meds, Food)."""
+    return ResourceSentinel.get_all()
+
+@app.post("/resources/tag")
+def tag_resource(res_type: str, lat: float, lng: float, qty: str, api_key: Optional[str] = None):
+    """
+    Tags a resource point. 
+    If api_key matches, it is marked as VERIFIED (Government).
+    Otherwise, it is marked UNVERIFIED (Crowdsourced).
+    """
+    is_admin = (api_key == "NDRF-COMMAND-2026-SECURE")
+    new_res = ResourceSentinel.add_resource(res_type, lat, lng, qty, is_admin)
+    
+    # Audit log for Government tagged resources
+    if is_admin:
+        AuditLogger.log("ADMIN", "RESOURCE_TAG", f"Official {res_type} added at {lat},{lng}", "INFO")
+    
+    return {"status": "success", "resource": new_res}
 
 # --- HEALTH CHECK ---
 @app.get("/health/diagnostics")
