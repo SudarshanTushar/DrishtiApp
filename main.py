@@ -15,7 +15,7 @@ from intelligence.crowdsource import CrowdManager
 from intelligence.analytics import AnalyticsEngine
 from intelligence.iot_network import IoTManager
 from intelligence.logistics import LogisticsManager
-# from intelligence.gis import GISEngine  <-- COMMENTED OUT TO PREVENT CRASH
+# from intelligence.gis import GISEngine  <-- COMMENTED OUT TO PREVENT HEROKU CRASH
 from intelligence.simulation import SimulationManager
 from intelligence.vision import VisionEngine
 from intelligence.audit import AuditLogger
@@ -194,7 +194,7 @@ def get_languages(): return LanguageConfig.get_config()
 def download_offline_intel(region_id: str):
     return {"region": "NE-Sector-Alpha", "timestamp": time.time(), "emergency_contacts": ["112", "108"], "safe_zones": [{"name": "Guwahati Army Camp", "lat": 26.14, "lng": 91.73}]}
 
-# --- FIXED VOICE ENDPOINT (DEBUG & HEADER FIX) ---
+# --- FIXED VOICE ENDPOINT (Uses api-subscription-key) ---
 @app.post("/listen")
 async def listen_to_voice(file: UploadFile = File(...), language_code: str = Form("hi-IN")):
     # 1. READ & CLEAN KEY
