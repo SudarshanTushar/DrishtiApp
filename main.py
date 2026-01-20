@@ -15,7 +15,7 @@ from intelligence.crowdsource import CrowdManager
 from intelligence.analytics import AnalyticsEngine
 from intelligence.iot_network import IoTManager
 from intelligence.logistics import LogisticsManager
-# from intelligence.gis import GISEngine # Commented out for Heroku Stability
+# from intelligence.gis import GISEngine  <-- COMMENTED OUT TO PREVENT CRASH
 from intelligence.simulation import SimulationManager
 from intelligence.vision import VisionEngine
 from intelligence.audit import AuditLogger
@@ -99,7 +99,7 @@ def admin_close_route(lat: float, lng: float, api_key: str = Depends(SecurityGat
 
 @app.get("/gis/layers")
 def get_gis_layers(lat: float, lng: float):
-    # FALLBACK MOCK for Stability
+    # FALLBACK MOCK for Stability (Since we removed geopandas)
     sim_state = SimulationManager.get_overrides()
     if sim_state["active"]:
         return {
@@ -194,7 +194,7 @@ def get_languages(): return LanguageConfig.get_config()
 def download_offline_intel(region_id: str):
     return {"region": "NE-Sector-Alpha", "timestamp": time.time(), "emergency_contacts": ["112", "108"], "safe_zones": [{"name": "Guwahati Army Camp", "lat": 26.14, "lng": 91.73}]}
 
-# --- FIXED VOICE ENDPOINT ---
+# --- FIXED VOICE ENDPOINT (DEBUG & HEADER FIX) ---
 @app.post("/listen")
 async def listen_to_voice(file: UploadFile = File(...), language_code: str = Form("hi-IN")):
     # 1. READ & CLEAN KEY
@@ -214,7 +214,7 @@ async def listen_to_voice(file: UploadFile = File(...), language_code: str = For
         if len(SARVAM_API_KEY) > 10:
             files = {"file": (file.filename, file.file, file.content_type)}
             
-            # --- THE FIX IS HERE: Correct Header Name ---
+            # THE FIX: Sarvam uses 'api-subscription-key'
             headers = {"api-subscription-key": SARVAM_API_KEY}
             
             print("🎤 [VOICE] Sending to Sarvam AI...")
@@ -245,4 +245,5 @@ async def listen_to_voice(file: UploadFile = File(...), language_code: str = For
 
     except Exception as e:
         print(f"❌ [VOICE] CRITICAL ERROR: {str(e)}")
+        # Return success with error message so app doesn't crash on client side
         return {"status": "success", "translated_text": "Error processing voice.", "voice_reply": "System Error. Manual input required.", "target": "Unknown"}
