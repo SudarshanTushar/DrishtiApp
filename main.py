@@ -390,3 +390,27 @@ async def listen_to_voice(file: UploadFile = File(...), language_code: str = For
         print(f"❌ [VOICE] CRITICAL ERROR: {str(e)}")
         # Return success with error message so app doesn't crash on client side
         return {"status": "success", "translated_text": "Error processing voice.", "voice_reply": "System Error. Manual input required.", "target": "Unknown"}
+
+
+# --- MESH NETWORK RELAY (HYBRID DEMO) ---
+# This allows two phones to "chat" using the server as a bridge
+# mimicking how they would chat over a real mesh network.
+
+MESH_BUFFER = []
+
+class MeshMessage(BaseModel):
+    sender: str
+    text: str
+    timestamp: float
+
+@app.post("/mesh/send")
+def send_mesh_message(msg: MeshMessage):
+    MESH_BUFFER.append(msg.dict())
+    # Keep only last 50 messages
+    if len(MESH_BUFFER) > 50:
+        MESH_BUFFER.pop(0)
+    return {"status": "sent"}
+
+@app.get("/mesh/messages")
+def get_mesh_messages():
+    return MESH_BUFFER
