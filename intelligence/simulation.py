@@ -40,6 +40,7 @@ class SimulationManager:
         """
         Activates the system. Returns the scenario details to be injected.
         """
+        # Default to FLASH_FLOOD if key is invalid
         scenario = SimulationManager.SCENARIOS.get(scenario_key, SimulationManager.SCENARIOS["FLASH_FLOOD"])
         
         SimulationManager.state = {
