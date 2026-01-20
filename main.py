@@ -15,7 +15,7 @@ from intelligence.crowdsource import CrowdManager
 from intelligence.analytics import AnalyticsEngine
 from intelligence.iot_network import IoTManager
 from intelligence.logistics import LogisticsManager
-# from intelligence.gis import GISEngine  <-- CRITICAL: Commented out to prevent Heroku Crash
+# from intelligence.gis import GISEngine # Commented out for Heroku Stability
 from intelligence.simulation import SimulationManager
 from intelligence.vision import VisionEngine
 from intelligence.audit import AuditLogger
@@ -99,14 +99,13 @@ def admin_close_route(lat: float, lng: float, api_key: str = Depends(SecurityGat
 
 @app.get("/gis/layers")
 def get_gis_layers(lat: float, lng: float):
-    # FIXED: Return Mock Data to avoid 'geopandas' crash on Heroku
+    # FALLBACK MOCK for Stability
     sim_state = SimulationManager.get_overrides()
     if sim_state["active"]:
         return {
             "flood_zones": [{"id": "SIM_FLOOD", "risk_level": "CRITICAL", "coordinates": [[lat+0.05, lng-0.05], [lat+0.05, lng+0.05], [lat-0.05, lng+0.05], [lat-0.05, lng-0.05]], "info": "SIMULATED DISASTER ZONE"}],
             "landslide_clusters": []
         }
-    # Standard Mock Data
     return {
         "flood_zones": [
             {"id": "ZONE-1", "risk_level": "CRITICAL", "coordinates": [[lat+0.01, lng-0.01], [lat+0.01, lng+0.01], [lat-0.01, lng+0.01], [lat-0.01, lng-0.01]], "info": "Flash Flood Risk"}
@@ -122,7 +121,6 @@ def dispatch_rescue(request: SOSRequest):
 
 @app.get("/sos/track/{mission_id}")
 def track_mission(mission_id: str):
-    """Real-time animation of the ambulance moving towards user"""
     status = LogisticsManager.get_mission_status(mission_id)
     if status:
         return {"status": "success", "mission": status}
@@ -136,7 +134,6 @@ def get_iot_feed():
 
 @app.get("/analyze")
 def analyze_route(start_lat: float, start_lng: float, end_lat: float, end_lng: float, rain_input: Optional[int] = None):
-    # 1. LIVE WEATHER INTEGRATION
     if rain_input is None or rain_input == 0:
         try:
             iot_data = IoTManager.get_live_readings()
@@ -147,15 +144,9 @@ def analyze_route(start_lat: float, start_lng: float, end_lat: float, end_lng: f
         except:
             rain_input = 50 
 
-    # 2. RUN AI PREDICTION
     ai_result = predictor.predict(rain_input, start_lat, start_lng)
-    
-    # 3. GOVERNANCE CHECK
     governance_result = SafetyGovernance.validate_risk(rain_input, ai_result["slope_angle"], ai_result["ai_score"])
-    
-    # 4. CROWDSOURCED INTEL OVERRIDE
     crowd_intel = CrowdManager.evaluate_zone(start_lat, start_lng)
-    
     final_risk = governance_result["risk"]
     final_reason = governance_result["reason"]
     final_source = governance_result["source"]
@@ -206,7 +197,7 @@ def download_offline_intel(region_id: str):
 # --- FIXED VOICE ENDPOINT ---
 @app.post("/listen")
 async def listen_to_voice(file: UploadFile = File(...), language_code: str = Form("hi-IN")):
-    # 1. READ & CLEAN KEY (Removes quotes and spaces that cause 403 Errors)
+    # 1. READ & CLEAN KEY
     raw_key = os.getenv("SARVAM_API_KEY", "")
     SARVAM_API_KEY = raw_key.strip().replace('"', '').replace("'", "")
     
@@ -222,7 +213,9 @@ async def listen_to_voice(file: UploadFile = File(...), language_code: str = For
         # Only try if we have a valid key (at least 10 chars)
         if len(SARVAM_API_KEY) > 10:
             files = {"file": (file.filename, file.file, file.content_type)}
-            headers = {"Ocp-Apim-Subscription-Key": SARVAM_API_KEY}
+            
+            # --- THE FIX IS HERE: Correct Header Name ---
+            headers = {"api-subscription-key": SARVAM_API_KEY}
             
             print("🎤 [VOICE] Sending to Sarvam AI...")
             response = requests.post(SARVAM_URL, headers=headers, files=files)
@@ -252,5 +245,4 @@ async def listen_to_voice(file: UploadFile = File(...), language_code: str = For
 
     except Exception as e:
         print(f"❌ [VOICE] CRITICAL ERROR: {str(e)}")
-        # Return success with error message so app doesn't crash on client side
         return {"status": "success", "translated_text": "Error processing voice.", "voice_reply": "System Error. Manual input required.", "target": "Unknown"}
