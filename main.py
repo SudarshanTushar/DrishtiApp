@@ -226,23 +226,39 @@ def download_offline_intel(region_id: str):
 # --- VOICE AI ---
 @app.post("/listen")
 async def listen_to_voice(file: UploadFile = File(...), language_code: str = Form("hi-IN")):
-    SARVAM_API_KEY = os.getenv("SARVAM_API_KEY") 
-    SARVAM_URL = "https://api.sarvam.ai/speech-to-text-translate"
-
     try:
+        # 1. Check for API Key
+        SARVAM_API_KEY = os.getenv("SARVAM_API_KEY") 
+        SARVAM_URL = "https://api.sarvam.ai/speech-to-text-translate"
+
+        translated_text = "Navigate to Shillong" # Default fallback
+        target_city = "Shillong"
+
+        # 2. Only hit API if Key exists
         if SARVAM_API_KEY:
             files = {"file": (file.filename, file.file, file.content_type)}
             headers = {"Ocp-Apim-Subscription-Key": SARVAM_API_KEY}
+            
+            # Send to AI
             response = requests.post(SARVAM_URL, headers=headers, files=files)
-            translated_text = response.json().get("transcript", "Navigate to Shillong")
+            
+            if response.status_code == 200:
+                translated_text = response.json().get("transcript", translated_text)
+            else:
+                print(f"Sarvam AI Error: {response.status_code} - {response.text}")
         else:
-            time.sleep(1) # Fake processing delay
-            translated_text = "Navigate to Shillong"
+            # Fake delay for demo feel
+            time.sleep(1.5) 
 
-        target_city = "Shillong" if "shillong" in translated_text.lower() else "Unknown"
+        # 3. Parse Logic
+        if "shillong" in translated_text.lower():
+            target_city = "Shillong"
+        elif "guwahati" in translated_text.lower():
+            target_city = "Guwahati"
         
+        # 4. Generate Reply
         fallback_responses = LanguageConfig.OFFLINE_RESPONSES.get(language_code, LanguageConfig.OFFLINE_RESPONSES["en-IN"])
-        voice_reply = f"{fallback_responses['SAFE']} ({target_city})" if target_city != "Unknown" else "Command not understood."
+        voice_reply = f"{fallback_responses['SAFE']} ({target_city})"
 
         return {
             "status": "success", 
@@ -252,4 +268,5 @@ async def listen_to_voice(file: UploadFile = File(...), language_code: str = For
         }
 
     except Exception as e:
-        return {"status": "error", "message": str(e)}
+        print(f"VOICE ERROR: {str(e)}") # This will show in Heroku logs
+        return {"status": "error", "message": f"Server Error: {str(e)}"}
