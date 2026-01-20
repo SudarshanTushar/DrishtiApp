@@ -1,64 +1,66 @@
-# backend/intelligence/logistics.py
-import math
 import time
-import random
+import math
 
 class LogisticsManager:
-    """
-    Manages the 'Blue Force' (Rescue Assets).
-    Calculates nearest responders and Green Corridor routes.
-    """
-    
-    # Simulated Fleet Registry
-    # In prod, this tracks real-time GPS of ambulances/NDRF trucks
-    FLEET = [
-        {"id": "NDRF_ALPHA", "type": "HEAVY_RESCUE", "lat": 26.10, "lng": 91.70, "status": "AVAILABLE"},
-        {"id": "AMB_108_01", "type": "AMBULANCE", "lat": 25.60, "lng": 94.00, "status": "AVAILABLE"},
-        {"id": "AMB_108_02", "type": "AMBULANCE", "lat": 26.15, "lng": 91.78, "status": "BUSY"},
-        {"id": "DRONE_SQUAD", "type": "AERIAL_RECON", "lat": 25.58, "lng": 91.89, "status": "AVAILABLE"}
-    ]
-
+    # Simulating a database of active missions
     active_missions = {}
 
     @staticmethod
-    def calculate_distance(lat1, lng1, lat2, lng2):
-        # Haversine approximation for speed
-        return math.sqrt((lat1 - lat2)**2 + (lng1 - lng2)**2)
-
-    @staticmethod
-    def request_dispatch(victim_lat, victim_lng, urgency="HIGH"):
-        """
-        Finds the nearest available unit and assigns it.
-        """
-        best_unit = None
-        min_dist = float('inf')
-
-        for unit in LogisticsManager.FLEET:
-            if unit["status"] != "AVAILABLE":
-                continue
-            
-            dist = LogisticsManager.calculate_distance(victim_lat, victim_lng, unit["lat"], unit["lng"])
-            if dist < min_dist:
-                min_dist = dist
-                best_unit = unit
-
-        if best_unit:
-            # Create Mission
-            mission_id = f"MSN_{int(time.time())}"
-            # Update Unit Status
-            best_unit["status"] = "DISPATCHED"
-            
-            mission_details = {
-                "mission_id": mission_id,
-                "unit": best_unit,
-                "eta_minutes": random.randint(5, 15), # Simulated ETA
-                "status": "EN_ROUTE"
-            }
-            LogisticsManager.active_missions[mission_id] = mission_details
-            return mission_details
+    def request_dispatch(user_lat, user_lng):
+        mission_id = f"MSN-{int(time.time())}"
         
-        return None # No units available
+        # 1. Spawn Unit slightly away from user (approx 2-3km)
+        # 0.02 deg ~ 2.2km
+        start_lat = user_lat + 0.02
+        start_lng = user_lng + 0.02
+
+        mission = {
+            "mission_id": mission_id,
+            "status": "DISPATCHED",
+            "start_time": time.time(),
+            "user_loc": (user_lat, user_lng),
+            "unit": {
+                "id": "UNIT-ALPHA",
+                "type": "DRONE_AMBULANCE",
+                "lat": start_lat,
+                "lng": start_lng,
+                "speed": 0.0005 # Lat/Lng movement per tick
+            }
+        }
+        
+        LogisticsManager.active_missions[mission_id] = mission
+        return mission
 
     @staticmethod
     def get_mission_status(mission_id):
-        return LogisticsManager.active_missions.get(mission_id)
+        mission = LogisticsManager.active_missions.get(mission_id)
+        if not mission:
+            return None
+
+        # 2. CALCULATE MOVEMENT (Linear Interpolation)
+        # Move unit closer to user
+        unit_lat, unit_lng = mission['unit']['lat'], mission['unit']['lng']
+        target_lat, target_lng = mission['user_loc']
+
+        # Vector towards target
+        d_lat = target_lat - unit_lat
+        d_lng = target_lng - unit_lng
+        distance = math.sqrt(d_lat**2 + d_lng**2)
+
+        # Stop if close enough
+        if distance < 0.0005:
+            mission['status'] = "ARRIVED"
+            mission['eta_minutes'] = 0
+        else:
+            # Move by speed factor
+            speed = mission['unit']['speed']
+            move_lat = (d_lat / distance) * speed
+            move_lng = (d_lng / distance) * speed
+            
+            mission['unit']['lat'] += move_lat
+            mission['unit']['lng'] += move_lng
+            
+            # Estimate ETA (Simple distance / speed)
+            mission['eta_minutes'] = int(distance * 100) # Rough scaler
+
+        return mission
