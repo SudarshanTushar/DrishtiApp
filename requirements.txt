@@ -7,5 +7,3 @@ scikit-learn
 numpy
 pandas
 joblib
-geopandas
-rasterio
