@@ -1,351 +1,277 @@
-from fastapi import FastAPI, UploadFile, File, Form, Depends
-from fastapi.middleware.cors import CORSMiddleware
-import time
-import os
-import requests
-import random
-import uuid
-from pydantic import BaseModel
-from typing import Optional
+import React, { useState, useEffect } from 'react';
+import axios from 'axios';
+import { HardwareManager } from '../services/HardwareManager';
+import BroadcastModal from './BroadcastModal';
+import SafeMap from './SafeMap';
+import DroneScanner from './DroneScanner';
 
-# MODULES
-# Updated import to include DecisionEngine
-from intelligence.governance import SafetyGovernance, DecisionEngine 
-from intelligence.risk_model import LandslidePredictor
-from intelligence.languages import LanguageConfig
-from intelligence.crowdsource import CrowdManager
-from intelligence.analytics import AnalyticsEngine
-from intelligence.iot_network import IoTManager
-from intelligence.logistics import LogisticsManager
-# from intelligence.gis import GISEngine  <-- DISABLED TO PREVENT HEROKU CRASH
-from intelligence.simulation import SimulationManager
-from intelligence.vision import VisionEngine
-from intelligence.audit import AuditLogger
-from intelligence.security import SecurityGate 
+// Keep the cool GIF for the "Waiting" state
+const DRONE_IDLE_GIF = "https://media.giphy.com/media/v1.Y2lkPTc5MGI3NjExbmZ5Z3l5aWd5aWd5aWd5aWd5aWd5aWd5aWd5aWd5aWd5aSZlcD12MV9pbnRlcm5hbF9naWZfYnlfaWQmY3Q9Zw/3o7TKsAdsDqYkR8D0Q/giphy.gif"; 
 
-app = FastAPI(title="RouteAI-NE Government Backend")
+export default function CommandDashboard({ apiUrl, isConnected, sensors, onOpenReport }) {
+  const [sosList, setSosList] = useState([]);
+  const [systemTime, setSystemTime] = useState(new Date().toLocaleTimeString());
+  const [showBroadcast, setShowBroadcast] = useState(false);
+  const [droneMode, setDroneMode] = useState("IDLE"); // IDLE, SCANNING
+  const [droneFile, setDroneFile] = useState(null);
+  const [pendingDecisions, setPendingDecisions] = useState([]); // Governance Queue
 
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
-
-predictor = LandslidePredictor()
-
-# --- IN-MEMORY DECISION QUEUE (For Demo) ---
-# In production, this would be a Redis/Postgres table
-PENDING_DECISIONS = []
-
-class HazardReport(BaseModel):
-    lat: float
-    lng: float
-    hazard_type: str
-
-class SOSRequest(BaseModel):
-    lat: float
-    lng: float
-    type: str = "MEDICAL"
-
-# --- HEALTH CHECK ---
-@app.get("/health/diagnostics")
-def system_health():
-    return SecurityGate.system_health_check()
-
-# --- AUTH ---
-@app.post("/auth/login")
-def admin_login(password: str = Form(...)):
-    if password == "india123":
-        return {"status": "success", "token": "NDRF-COMMAND-2026-SECURE"}
-    else:
-        return {"status": "failed", "message": "Invalid Credentials"}
-
-# --- GOVERNANCE & DECISION ENDPOINTS (NEW) ---
-
-@app.get("/admin/governance/pending")
-def get_pending_decisions(api_key: str = Depends(SecurityGate.verify_admin)):
-    """
-    Returns the list of actions waiting for Human Approval.
-    """
-    # SIMULATION: If empty, generate a fake critical decision for the Demo
-    # This ensures the Judges always see something to approve.
-    if not PENDING_DECISIONS:
-        dummy_risk = {
-            "risk": "CRITICAL", 
-            "score": 98, 
-            "reason": "Cloudburst Protocol (Rain > 120mm)", 
-            "source": "IMD Realtime"
+  // 1. CLOCK & SOS SIMULATION
+  useEffect(() => {
+    const timer = setInterval(() => setSystemTime(new Date().toLocaleTimeString()), 1000);
+    
+    // Simulate random SOS calls (ambient noise for the demo)
+    const sosInterval = setInterval(() => {
+        if (Math.random() > 0.85) { 
+            const newSOS = {
+                id: Math.floor(Math.random() * 9000) + 1000,
+                type: Math.random() > 0.5 ? "MEDICAL" : "FLOOD",
+                time: new Date().toLocaleTimeString(),
+                lat: 26.1 + (Math.random() * 0.05),
+                lng: 91.7 + (Math.random() * 0.05),
+                status: "PENDING"
+            };
+            setSosList(prev => [newSOS, ...prev].slice(0, 7));
+            try { HardwareManager.vibrate('error'); } catch(e){} 
         }
-        # Use the new DecisionEngine
-        proposal = DecisionEngine.create_proposal(dummy_risk, 26.14, 91.73)
-        PENDING_DECISIONS.append(proposal)
+    }, 4000);
+    return () => { clearInterval(timer); clearInterval(sosInterval); };
+  }, []);
+
+  // 2. POLL FOR PENDING DECISIONS (GOVERNANCE)
+  useEffect(() => {
+    if(!isConnected) return;
+    const fetchDecisions = async () => {
+        try {
+            const res = await axios.get(`${apiUrl}/admin/governance/pending`);
+            setPendingDecisions(res.data);
+            if(res.data.length > 0) HardwareManager.vibrate('pulse'); // Alert the Commander
+        } catch(e) {}
+    };
+    const interval = setInterval(fetchDecisions, 3000);
+    return () => clearInterval(interval);
+  }, [isConnected, apiUrl]);
+
+  // 3. ACTION HANDLERS
+  const handleDecision = async (id, action) => {
+    try {
+        await axios.post(`${apiUrl}/admin/governance/decide?decision_id=${id}&action=${action}&admin_notes=Verified via CCTV`, {});
+        alert(action === "APPROVE" ? "✅ ORDER AUTHORIZED & EXECUTED" : "❌ ORDER REJECTED");
+        setPendingDecisions(prev => prev.filter(d => d.id !== id));
+    } catch(e) { alert("Error submitting decision"); }
+  };
+
+  const handleToggleSimulation = async () => {
+      try {
+          if (pendingDecisions.length > 0) {
+              await axios.post(`${apiUrl}/admin/simulate/stop`);
+              setPendingDecisions([]); // Clear local state immediately
+              alert("✅ DRILL STOPPED. System Normal.");
+          } else {
+              await axios.post(`${apiUrl}/admin/simulate/start?scenario=FLASH_FLOOD`);
+              alert("🚨 DRILL INITIATED: Flash Flood Scenario Active.");
+              // The polling useEffect will catch the new decision in 3 seconds
+          }
+      } catch (e) {
+          console.error(e);
+          alert("Connection Error: Could not toggle simulation.");
+      }
+  };
+
+  const handleGenerateRealReport = () => {
+    const realStats = {
+        risk: "HIGH",
+        active_units: 3,
+        sensors_online: sensors ? sensors.length : 0,
+        sos_pending: sosList.length
+    };
+    onOpenReport({
+        title: "Situation Report (SITREP)",
+        date: new Date().toLocaleString(),
+        content: `ALERT: Critical water levels detected in Sector 4. \n\nDeployed Units: 3 NDRF Teams.\nPending SOS: ${sosList.length}.\nRecommendation: Immediate Evacuation of Low-Lying Zones.`,
+        stats: realStats,
+        logs: sosList
+    });
+  };
+
+  return (
+    <div className="absolute inset-0 bg-slate-950 text-slate-100 font-mono flex flex-col z-[2000] overflow-y-auto selection:bg-emerald-500/30">
+      
+      {/* 1. TOP COMMAND HEADER */}
+      <div className="bg-slate-900 border-b border-slate-800 p-4 flex justify-between items-center shadow-2xl sticky top-0 z-50">
+        <div className="flex items-center gap-4">
+            <div className="relative">
+                <div className={`w-3 h-3 rounded-full absolute inset-0 ${pendingDecisions.length > 0 ? 'bg-red-500 animate-ping' : 'bg-emerald-500'}`}></div>
+                <div className={`w-3 h-3 rounded-full relative ${pendingDecisions.length > 0 ? 'bg-red-500' : 'bg-emerald-500'}`}></div>
+            </div>
+            <div>
+                <h1 className="text-xl font-black tracking-[0.2em] text-white leading-none">NETRA <span className="text-slate-600">|</span> COMMAND</h1>
+                <div className="text-[9px] text-emerald-500 font-bold mt-1">
+                    {pendingDecisions.length > 0 ? <span className="text-red-500 animate-pulse">⚠ THREAT DETECTED</span> : "SECURE UPLINK ESTABLISHED"}
+                </div>
+            </div>
+        </div>
         
-    return PENDING_DECISIONS
+        {/* ACTION BUTTONS */}
+        <div className="flex gap-2">
+            {/* SIMULATION TOGGLE */}
+            <button 
+                onClick={handleToggleSimulation}
+                className={`px-3 py-1 rounded text-[10px] font-bold tracking-widest border transition-all ${
+                    pendingDecisions.length > 0 
+                    ? "bg-slate-800 border-slate-600 text-slate-400 hover:bg-slate-700" 
+                    : "bg-amber-900/20 border-amber-500/50 text-amber-500 hover:bg-amber-900/40"
+                }`}
+            >
+                {pendingDecisions.length > 0 ? "🛑 END DRILL" : "⚠️ START SIM"}
+            </button>
 
-@app.post("/admin/governance/decide")
-def submit_decision(decision_id: str, action: str, admin_notes: str, api_key: str = Depends(SecurityGate.verify_admin)):
-    """
-    The 'Nuclear Key'. Admin either APPROVES or REJECTS the AI's plan.
-    """
-    # 1. Find the proposal
-    proposal = next((p for p in PENDING_DECISIONS if p["id"] == decision_id), None)
-    
-    if not proposal:
-        return {"status": "error", "message": "Decision ID not found."}
-    
-    # 2. Execute Logic based on Human Choice
-    if action == "APPROVE":
-        # LOGGING (Chain of Trust)
-        AuditLogger.log(
-            actor="COMMANDER_ADMIN",
-            action=f"AUTHORIZED_{proposal['type']}",
-            details=f"Approved AI Proposal {decision_id}. Notes: {admin_notes}",
-            severity="CRITICAL"
-        )
-        
-        # REMOVE FROM QUEUE
-        PENDING_DECISIONS.remove(proposal)
-        
-        # EXECUTE (Simulated Execution)
-        # In real life, this triggers the SMS Gateway / NDRF Radio
-        return {
-            "status": "success", 
-            "outcome": f"🚀 EXECUTED: {proposal['type']}", 
-            "audit_hash": str(uuid.uuid4())
-        }
-        
-    elif action == "REJECT":
-        # Log the Rejection (Important for AI Training Loop)
-        AuditLogger.log(
-            actor="COMMANDER_ADMIN", 
-            action="REJECTED_ACTION", 
-            details=f"Rejected {decision_id}. Reason: {admin_notes}", 
-            severity="WARN"
-        )
-        PENDING_DECISIONS.remove(proposal)
-        return {"status": "success", "outcome": "❌ Action Cancelled. Model flagged for retraining."}
-
-# --- EXISTING ADMIN ENDPOINTS ---
-
-@app.get("/admin/stats")
-def get_admin_stats(api_key: str = Depends(SecurityGate.verify_admin)):
-    return AnalyticsEngine.get_live_stats()
-
-@app.get("/admin/audit-logs")
-def get_audit_trail(api_key: str = Depends(SecurityGate.verify_admin)):
-    return AuditLogger.get_logs()
-
-@app.post("/admin/broadcast")
-def broadcast_alert(message: str, lat: float = 26.14, lng: float = 91.73, api_key: str = Depends(SecurityGate.verify_admin)):
-    AuditLogger.log("ADMIN", "MASS_BROADCAST", f"Msg: {message}", "CRITICAL")
-    return {"status": "success", "targets": "Telecom Operators", "payload": "CAP-XML"}
-
-# --- UPDATED SIMULATION ENDPOINTS (AUTO-INJECT) ---
-
-@app.post("/admin/simulate/start")
-def start_simulation(scenario: str = "FLASH_FLOOD", api_key: str = Depends(SecurityGate.verify_admin)):
-    """
-    TRIGGERS THE DEMO LOOP:
-    1. Sets Global Simulation State to ACTIVE.
-    2. Injects a CRITICAL PROPOSAL into the Governance Queue.
-    """
-    # 1. Start the Sim Engine
-    scenario_data = SimulationManager.start_scenario(scenario, 26.14, 91.73)
-    
-    # 2. Log the Drill Start
-    AuditLogger.log("ADMIN", "DRILL_INITIATED", f"Scenario: {scenario}", "WARN")
-    
-    # 3. AUTO-INJECT DECISION (The "Magic" Step)
-    # This ensures the dashboard immediately flashes "ACTION REQUIRED"
-    proposal = DecisionEngine.create_proposal(scenario_data, 26.14, 91.73)
-    
-    # Avoid duplicates
-    existing = next((p for p in PENDING_DECISIONS if p["reason"] == scenario_data["reason"]), None)
-    if not existing:
-        PENDING_DECISIONS.insert(0, proposal)
-    
-    return {"status": "ACTIVE", "injected_proposal": proposal["id"]}
-
-@app.post("/admin/simulate/stop")
-def stop_simulation(api_key: str = Depends(SecurityGate.verify_admin)):
-    """
-    CLEANUP:
-    1. Stops Sim Engine.
-    2. Clears Pending Decisions (so the dashboard goes green).
-    """
-    AuditLogger.log("ADMIN", "DRILL_STOPPED", "System Reset to Normal", "INFO")
-    
-    # Clear the queue so the alert disappears
-    PENDING_DECISIONS.clear()
-    
-    return SimulationManager.stop_simulation()
-
-@app.post("/admin/analyze-drone")
-async def analyze_drone_footage(file: UploadFile = File(...), api_key: str = Depends(SecurityGate.verify_admin)):
-    result = VisionEngine.analyze_damage(file.filename)
-    if "CATASTROPHIC" in result["classification"]:
-        CrowdManager.admin_override(26.14, 91.73, "CLOSED")
-        result["auto_action"] = "Route CLOSED by Vision System"
-        AuditLogger.log("AI_VISION", "AUTO_CLOSE", f"Damage {result['damage_score']}", "CRITICAL")
-    return result
-
-@app.post("/admin/close-route")
-def admin_close_route(lat: float, lng: float, api_key: str = Depends(SecurityGate.verify_admin)):
-    CrowdManager.admin_override(lat, lng, "CLOSED")
-    AuditLogger.log("ADMIN", "ROUTE_CLOSE", f"Override {lat},{lng}", "CRITICAL")
-    return {"status": "success", "message": "Zone marked BLACK (CLOSED)."}
-
-# --- PUBLIC ENDPOINTS ---
-
-@app.get("/gis/layers")
-def get_gis_layers(lat: float, lng: float):
-    # FALLBACK MOCK for Stability (Since we removed geopandas)
-    sim_state = SimulationManager.get_overrides()
-    if sim_state["active"]:
-        return {
-            "flood_zones": [{"id": "SIM_FLOOD", "risk_level": "CRITICAL", "coordinates": [[lat+0.05, lng-0.05], [lat+0.05, lng+0.05], [lat-0.05, lng+0.05], [lat-0.05, lng-0.05]], "info": "SIMULATED DISASTER ZONE"}],
-            "landslide_clusters": []
-        }
-    return {
-        "flood_zones": [
-            {"id": "ZONE-1", "risk_level": "CRITICAL", "coordinates": [[lat+0.01, lng-0.01], [lat+0.01, lng+0.01], [lat-0.01, lng+0.01], [lat-0.01, lng-0.01]], "info": "Flash Flood Risk"}
-        ],
-        "landslide_clusters": []
-    }
-
-@app.post("/sos/dispatch")
-def dispatch_rescue(request: SOSRequest):
-    mission = LogisticsManager.request_dispatch(request.lat, request.lng)
-    if mission: return {"status": "success", "mission": mission}
-    else: return {"status": "failed", "message": "All units busy."}
-
-@app.get("/sos/track/{mission_id}")
-def track_mission(mission_id: str):
-    status = LogisticsManager.get_mission_status(mission_id)
-    if status:
-        return {"status": "success", "mission": status}
-    return {"status": "error", "message": "Mission ended or not found"}
-
-@app.get("/iot/feed")
-def get_iot_feed():
-    data = IoTManager.get_live_readings()
-    alert = IoTManager.check_critical_breach(data)
-    return {"sensors": data, "system_alert": alert}
-
-@app.get("/analyze")
-def analyze_route(start_lat: float, start_lng: float, end_lat: float, end_lng: float, rain_input: Optional[int] = None):
-    if rain_input is None or rain_input == 0:
-        try:
-            iot_data = IoTManager.get_live_readings()
-            rain_sensor = next((s for s in iot_data if s["type"] == "RAIN_GAUGE"), None)
-            if rain_sensor:
-                rain_input = float(rain_sensor['value'])
-            if rain_input == 0: rain_input = 15
-        except:
-            rain_input = 50 
-
-    ai_result = predictor.predict(rain_input, start_lat, start_lng)
-    governance_result = SafetyGovernance.validate_risk(rain_input, ai_result["slope_angle"], ai_result["ai_score"])
-    crowd_intel = CrowdManager.evaluate_zone(start_lat, start_lng)
-    final_risk = governance_result["risk"]
-    final_reason = governance_result["reason"]
-    final_source = governance_result["source"]
-    
-    if crowd_intel and crowd_intel["risk"] in ["CRITICAL", "HIGH"]:
-        final_risk = crowd_intel["risk"]
-        final_reason = f"LIVE HAZARD: {crowd_intel['source']}"
-        final_source = "Citizen Sentinel Network"
-        
-    iot_feed = IoTManager.get_live_readings()
-    breach = IoTManager.check_critical_breach(iot_feed)
-    if breach:
-        final_risk = "CRITICAL"
-        final_reason = breach["message"]
-        final_source = "IoT Sensor Grid"
-        
-    sim_state = SimulationManager.get_overrides()
-    if sim_state["active"]:
-        final_risk = "CRITICAL"
-        final_reason = f"DRILL ACTIVE: {sim_state['scenario']} SCENARIO"
-        final_source = "National Command Authority (DRILL)"
-        
-    return {
-        "distance": f"{random.randint(110, 140)}.5 km",
-        "route_risk": final_risk,
-        "confidence_score": governance_result["score"],
-        "reason": final_reason,
-        "source": final_source,
-        "terrain_data": {
-            "type": "Hilly" if start_lat > 26 else "Plain",
-            "slope": f"{ai_result['slope_angle']}°",
-            "soil": ai_result["soil_type"]
-        }
-    }
-
-@app.post("/report-hazard")
-def report_hazard(report: HazardReport):
-    result = CrowdManager.submit_report(report.lat, report.lng, report.hazard_type)
-    return {"status": "success", "new_zone_status": result}
-
-@app.get("/languages")
-def get_languages(): return LanguageConfig.get_config()
-
-@app.get("/offline-pack")
-def download_offline_intel(region_id: str):
-    return {"region": "NE-Sector-Alpha", "timestamp": time.time(), "emergency_contacts": ["112", "108"], "safe_zones": [{"name": "Guwahati Army Camp", "lat": 26.14, "lng": 91.73}]}
-
-# --- FIXED VOICE ENDPOINT (Uses api-subscription-key) ---
-@app.post("/listen")
-async def listen_to_voice(file: UploadFile = File(...), language_code: str = Form("hi-IN")):
-    # 1. READ & CLEAN KEY
-    raw_key = os.getenv("SARVAM_API_KEY", "")
-    SARVAM_API_KEY = raw_key.strip().replace('"', '').replace("'", "")
-    
-    # 2. DEBUG LOG
-    print(f"🎤 [VOICE] Checking Key... Length: {len(SARVAM_API_KEY)}")
-
-    SARVAM_URL = "https://api.sarvam.ai/speech-to-text-translate"
-    
-    translated_text = "Navigate to Shillong"
-    target_city = "Shillong"
-
-    try:
-        # Only try if we have a valid key (at least 10 chars)
-        if len(SARVAM_API_KEY) > 10:
-            files = {"file": (file.filename, file.file, file.content_type)}
+            <button 
+                onClick={() => setShowBroadcast(true)}
+                className="bg-red-600 hover:bg-red-500 text-white px-3 py-1 rounded text-[10px] font-bold tracking-widest animate-pulse shadow-[0_0_15px_rgba(220,38,38,0.5)]"
+            >
+                📢 BROADCAST
+            </button>
             
-            # THE FIX: Sarvam uses 'api-subscription-key'
-            headers = {"api-subscription-key": SARVAM_API_KEY}
-            
-            print("🎤 [VOICE] Sending to Sarvam AI...")
-            response = requests.post(SARVAM_URL, headers=headers, files=files)
-            
-            if response.status_code == 200:
-                translated_text = response.json().get("transcript", translated_text)
-                print(f"✅ [VOICE] Success: {translated_text}")
-            else:
-                print(f"⚠️ [VOICE] API Error {response.status_code}: {response.text}")
-        else:
-            print("⚠️ [VOICE] Key too short or missing. Using Fallback.")
-            time.sleep(1)
+            <div className="flex flex-col items-end hidden md:flex">
+                <span className="text-[9px] text-slate-500">SYSTEM TIME</span>
+                <span className="text-white text-sm font-bold">{systemTime}</span>
+            </div>
+        </div>
+      </div>
 
-        # 3. PARSE INTENT
-        if "shillong" in translated_text.lower():
-            target_city = "Shillong"
-        elif "guwahati" in translated_text.lower():
-            target_city = "Guwahati"
-        elif "kohima" in translated_text.lower():
-            target_city = "Kohima"
+      <div className="p-4 grid grid-cols-1 lg:grid-cols-12 gap-4">
         
-        # 4. REPLY
-        fallback_responses = LanguageConfig.OFFLINE_RESPONSES.get(language_code, LanguageConfig.OFFLINE_RESPONSES["en-IN"])
-        voice_reply = f"{fallback_responses['SAFE']} ({target_city})" if target_city != "Unknown" else "Command not understood."
+        {/* GOVERNANCE / APPROVAL DECK (Visible only when decisions pending) */}
+        {pendingDecisions.length > 0 && (
+            <div className="lg:col-span-12 bg-red-900/20 border border-red-500 rounded-xl p-4 animate-pulse-slow">
+                <div className="flex justify-between items-center mb-4">
+                    <h2 className="text-sm font-black text-red-400 flex items-center gap-2">
+                        ⚠️ PENDING AUTHORIZATION ({pendingDecisions.length})
+                    </h2>
+                    <div className="text-[10px] bg-red-500 text-white px-2 py-1 rounded font-bold">ACTION REQUIRED</div>
+                </div>
+                
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    {pendingDecisions.map(d => (
+                        <div key={d.id} className="bg-slate-900 border-l-4 border-red-500 p-4 rounded shadow-xl relative overflow-hidden">
+                            <div className="absolute top-0 right-0 p-4 opacity-5 text-6xl font-black text-white pointer-events-none">CONFIDENTIAL</div>
+                            
+                            <div className="flex justify-between items-start mb-2">
+                                <span className="font-mono text-xs text-slate-400">ID: {d.id}</span>
+                                <span className="font-bold text-xs text-red-400">{d.urgency} PRIORITY</span>
+                            </div>
+                            
+                            <h3 className="text-lg font-black text-white mb-1">{d.type.replace(/_/g, " ")}</h3>
+                            <p className="text-sm text-slate-300 mb-4 leading-relaxed">
+                                <span className="text-slate-500">REASON:</span> {d.reason}<br/>
+                                <span className="text-slate-500">SOURCE:</span> {d.source_intel} (Confidence: {d.ai_confidence}%)
+                            </p>
+                            
+                            <div className="flex gap-3">
+                                <button 
+                                    onClick={() => handleDecision(d.id, "APPROVE")}
+                                    className="flex-1 bg-emerald-600 hover:bg-emerald-500 text-white py-3 rounded font-bold text-xs tracking-widest shadow-lg transition-transform hover:scale-105"
+                                >
+                                    AUTHORIZE (SIGN)
+                                </button>
+                                <button 
+                                    onClick={() => handleDecision(d.id, "REJECT")}
+                                    className="flex-1 bg-slate-800 hover:bg-slate-700 text-slate-400 py-3 rounded font-bold text-xs tracking-widest border border-slate-600"
+                                >
+                                    REJECT
+                                </button>
+                            </div>
+                        </div>
+                    ))}
+                </div>
+            </div>
+        )}
 
-        return {"status": "success", "translated_text": translated_text, "voice_reply": voice_reply, "target": target_city}
+        {/* 2. REAL MAP & SENSORS (Left Panel - 7 Cols) */}
+        <div className="lg:col-span-7 flex flex-col gap-4">
+            <div className="bg-slate-900 border border-slate-700 rounded-xl overflow-hidden h-[350px] relative">
+                <div className="absolute top-2 left-2 z-10 bg-black/80 text-emerald-400 text-[9px] px-2 py-1 rounded border border-emerald-500/30">
+                    LIVE SATELLITE FEED
+                </div>
+                <SafeMap /> 
+            </div>
 
-    except Exception as e:
-        print(f"❌ [VOICE] CRITICAL ERROR: {str(e)}")
-        # Return success with error message so app doesn't crash on client side
-        return {"status": "success", "translated_text": "Error processing voice.", "voice_reply": "System Error. Manual input required.", "target": "Unknown"}
+            <div className="bg-slate-900/50 border border-slate-700/50 rounded-xl p-4">
+                <h2 className="text-xs font-bold text-slate-400 mb-2 flex items-center gap-2">📡 SENSOR TELEMETRY</h2>
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
+                    {sensors && sensors.length > 0 ? sensors.map(s => (
+                        <div key={s.id} className="bg-slate-800/50 p-2 rounded border-l-2 border-emerald-500">
+                            <div className="text-[9px] text-slate-500">{s.location}</div>
+                            <div className="font-bold text-sm text-white">{s.value} <span className="text-[9px]">{s.unit}</span></div>
+                        </div>
+                    )) : <div className="text-[9px] text-slate-600 col-span-4 text-center">Connecting to Sensor Mesh...</div>}
+                </div>
+            </div>
+        </div>
+
+        {/* 3. RIGHT PANEL (Drone & SOS - 5 Cols) */}
+        <div className="lg:col-span-5 flex flex-col gap-4">
+            <div className="bg-slate-900/50 border border-slate-700/50 rounded-xl p-1 backdrop-blur-sm relative overflow-hidden">
+                <div className="bg-black aspect-video rounded border border-slate-800 relative overflow-hidden flex items-center justify-center">
+                    {droneMode === 'IDLE' ? (
+                        <img src={DRONE_IDLE_GIF} alt="Drone Feed" className="w-full h-full object-cover opacity-60" />
+                    ) : (
+                        <div className="w-full h-full bg-slate-900 p-2">
+                             <DroneScanner 
+                                file={droneFile} 
+                                onAnalysisComplete={(res) => {
+                                    alert(`DAMAGE DETECTED: ${res.damage_score}%\nAction: ${res.auto_action}`);
+                                    setDroneMode("IDLE");
+                                }} 
+                                apiUrl={apiUrl} 
+                            />
+                        </div>
+                    )}
+                </div>
+
+                <div className="p-2 grid grid-cols-2 gap-2">
+                    <button 
+                        onClick={() => setDroneMode(droneMode === 'IDLE' ? 'SCANNING' : 'IDLE')}
+                        className="bg-blue-600 hover:bg-blue-500 text-white py-2 rounded text-[10px] font-bold tracking-widest"
+                    >
+                        {droneMode === 'IDLE' ? 'UPLOAD DRONE FOOTAGE' : 'CANCEL SCAN'}
+                    </button>
+                    <button 
+                        onClick={handleGenerateRealReport}
+                        className="bg-slate-800 hover:bg-slate-700 text-slate-300 py-2 rounded text-[10px] font-bold tracking-widest border border-slate-600"
+                    >
+                        GENERATE SITREP PDF
+                    </button>
+                </div>
+            </div>
+
+            <div className="flex-1 bg-slate-900/50 border border-slate-700/50 rounded-xl p-4 overflow-hidden flex flex-col">
+                <div className="flex justify-between items-end border-b border-slate-700 pb-2 mb-2">
+                    <h2 className="text-xs font-bold text-slate-400">🚨 SOS SIGNALS</h2>
+                    <div className="text-[9px] text-red-500">{sosList.length} ACTIVE</div>
+                </div>
+                <div className="overflow-y-auto space-y-2 max-h-[250px]">
+                    {sosList.map(sos => (
+                        <div key={sos.id} className="bg-slate-800 p-2 rounded border-l-4 border-red-500 hover:bg-slate-700 cursor-pointer">
+                            <div className="flex justify-between">
+                                <span className="text-[10px] font-bold text-red-400">#{sos.id}</span>
+                                <span className="text-[9px] text-slate-500">{sos.time}</span>
+                            </div>
+                            <div className="text-xs font-bold text-white">{sos.type} EMERGENCY</div>
+                        </div>
+                    ))}
+                </div>
+            </div>
+        </div>
+
+      </div>
+
+      <BroadcastModal isOpen={showBroadcast} onClose={() => setShowBroadcast(false)} onSend={(msg) => {
+          alert(`BROADCAST SENT: "${msg}" to all active nodes.`);
+          setShowBroadcast(false);
+      }} />
+      
+    </div>
+  );
+}
