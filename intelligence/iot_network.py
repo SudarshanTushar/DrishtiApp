@@ -1,79 +1,68 @@
-# backend/intelligence/iot_network.py
-import time
+import requests
 import random
-from intelligence.simulation import SimulationManager # NEW IMPORT
 
 class IoTManager:
     """
-    Manages physical sensors. Now supports Simulation Overrides.
+    Manages physical sensors and fetches live weather data.
     """
-    
-    SENSORS = {
-        "SENS_001": {"type": "RIVER_GAUGE", "lat": 26.18, "lng": 91.75, "location": "Brahmaputra Bank"},
-        "SENS_002": {"type": "RAIN_GAUGE", "lat": 25.60, "lng": 91.90, "location": "Shillong Slope A"},
-        "SENS_003": {"type": "SOIL_MOISTURE", "lat": 25.80, "lng": 93.00, "location": "NH-06 Pass"}
-    }
 
     @staticmethod
     def get_live_readings():
-        telemetry = []
-        sim_state = SimulationManager.get_overrides() # Check for Simulation
+        # 1. Fetch Real Weather for Guwahati (26.14, 91.73)
+        # Using Open-Meteo (No API Key needed)
+        real_rain = 0
+        try:
+            url = "https://api.open-meteo.com/v1/forecast?latitude=26.14&longitude=91.73&current=rain&hourly=rain"
+            res = requests.get(url, timeout=2).json()
+            real_rain = res['current']['rain'] # mm
+        except:
+            real_rain = random.randint(0, 5) # Fallback
+
+        # 2. Simulate Sensor Grid based on Real Rain
+        # If it's raining, water levels rise
+        base_water_level = 48.0 + (real_rain * 0.5) 
         
-        for sensor_id, meta in IoTManager.SENSORS.items():
-            status = "NORMAL"
-            value = 0.0
-            unit = ""
-
-            # --- SIMULATION OVERRIDE LOGIC ---
-            if sim_state["active"] and sim_state["scenario"] == "FLASH_FLOOD":
-                # If Flash Flood scenario, SPIKE the river gauges
-                if meta["type"] == "RIVER_GAUGE":
-                    value = random.uniform(14.5, 16.0) # Critical Levels
-                    status = "CRITICAL"
-                    unit = "m"
-                elif meta["type"] == "RAIN_GAUGE":
-                    value = random.uniform(110, 150)
-                    status = "CRITICAL"
-                    unit = "mm/hr"
-                else:
-                    value = random.uniform(50, 80)
-                    unit = "%"
-            # ----------------------------------
-            else:
-                # Normal Operation (Random Fluctuation)
-                if meta["type"] == "RIVER_GAUGE":
-                    value = random.uniform(8.0, 12.0)
-                    unit = "m"
-                    if value > 11.5: status = "WARNING"
-                elif meta["type"] == "RAIN_GAUGE":
-                    value = random.uniform(0, 40)
-                    unit = "mm/hr"
-                elif meta["type"] == "SOIL_MOISTURE":
-                    value = random.uniform(20, 60)
-                    unit = "%"
-
-            telemetry.append({
-                "id": sensor_id,
-                "type": meta["type"],
-                "lat": meta["lat"],
-                "lng": meta["lng"],
-                "location": meta["location"],
-                "value": round(value, 2),
-                "unit": unit,
-                "status": status,
-                "last_update": time.time()
-            })
-
-        return telemetry
+        sensors = [
+            {
+                "id": "SENS-01",
+                "type": "RIVER_GAUGE",
+                "location": "Brahmaputra Alpha",
+                "lat": 26.15,
+                "lng": 91.74,
+                "value": f"{base_water_level:.1f}",
+                "unit": "m",
+                "status": "CRITICAL" if base_water_level > 50 else "STABLE"
+            },
+            {
+                "id": "SENS-02",
+                "type": "RAIN_GAUGE",
+                "location": "Shillong Outpost",
+                "lat": 25.57,
+                "lng": 91.89,
+                "value": f"{real_rain}",
+                "unit": "mm",
+                "status": "WARNING" if real_rain > 10 else "NORMAL"
+            },
+            {
+                "id": "SENS-03",
+                "type": "SEISMIC",
+                "location": "Tezpur Fault Line",
+                "lat": 26.65,
+                "lng": 92.79,
+                "value": "2.1",
+                "unit": "R",
+                "status": "NORMAL"
+            }
+        ]
+        return sensors
 
     @staticmethod
-    def check_critical_breach(telemetry_data):
-        for reading in telemetry_data:
-            if reading["status"] == "CRITICAL":
+    def check_critical_breach(sensors):
+        for s in sensors:
+            if s['status'] == "CRITICAL":
                 return {
                     "alert": True,
-                    "message": f"🚨 CRITICAL ALERT: {reading['type']} breach at {reading['location']}. WATER LEVEL: {reading['value']}{reading['unit']}. EVACUATE.",
-                    "zone_lat": reading["lat"],
-                    "zone_lng": reading["lng"]
+                    "sensor_id": s['id'],
+                    "message": f"CRITICAL BREACH AT {s['location']} ({s['value']}{s['unit']})"
                 }
         return None
