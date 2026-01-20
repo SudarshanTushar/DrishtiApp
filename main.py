@@ -142,14 +142,44 @@ def broadcast_alert(message: str, lat: float = 26.14, lng: float = 91.73, api_ke
     AuditLogger.log("ADMIN", "MASS_BROADCAST", f"Msg: {message}", "CRITICAL")
     return {"status": "success", "targets": "Telecom Operators", "payload": "CAP-XML"}
 
+# --- UPDATED SIMULATION ENDPOINTS (AUTO-INJECT) ---
+
 @app.post("/admin/simulate/start")
 def start_simulation(scenario: str = "FLASH_FLOOD", api_key: str = Depends(SecurityGate.verify_admin)):
-    AuditLogger.log("ADMIN", "SIMULATION_START", f"Scenario: {scenario}", "WARN")
-    return SimulationManager.start_scenario(scenario, 26.14, 91.73)
+    """
+    TRIGGERS THE DEMO LOOP:
+    1. Sets Global Simulation State to ACTIVE.
+    2. Injects a CRITICAL PROPOSAL into the Governance Queue.
+    """
+    # 1. Start the Sim Engine
+    scenario_data = SimulationManager.start_scenario(scenario, 26.14, 91.73)
+    
+    # 2. Log the Drill Start
+    AuditLogger.log("ADMIN", "DRILL_INITIATED", f"Scenario: {scenario}", "WARN")
+    
+    # 3. AUTO-INJECT DECISION (The "Magic" Step)
+    # This ensures the dashboard immediately flashes "ACTION REQUIRED"
+    proposal = DecisionEngine.create_proposal(scenario_data, 26.14, 91.73)
+    
+    # Avoid duplicates
+    existing = next((p for p in PENDING_DECISIONS if p["reason"] == scenario_data["reason"]), None)
+    if not existing:
+        PENDING_DECISIONS.insert(0, proposal)
+    
+    return {"status": "ACTIVE", "injected_proposal": proposal["id"]}
 
 @app.post("/admin/simulate/stop")
 def stop_simulation(api_key: str = Depends(SecurityGate.verify_admin)):
-    AuditLogger.log("ADMIN", "SIMULATION_STOP", "System Reset", "INFO")
+    """
+    CLEANUP:
+    1. Stops Sim Engine.
+    2. Clears Pending Decisions (so the dashboard goes green).
+    """
+    AuditLogger.log("ADMIN", "DRILL_STOPPED", "System Reset to Normal", "INFO")
+    
+    # Clear the queue so the alert disappears
+    PENDING_DECISIONS.clear()
+    
     return SimulationManager.stop_simulation()
 
 @app.post("/admin/analyze-drone")
@@ -266,7 +296,7 @@ def get_languages(): return LanguageConfig.get_config()
 def download_offline_intel(region_id: str):
     return {"region": "NE-Sector-Alpha", "timestamp": time.time(), "emergency_contacts": ["112", "108"], "safe_zones": [{"name": "Guwahati Army Camp", "lat": 26.14, "lng": 91.73}]}
 
-# --- FIXED VOICE ENDPOINT ---
+# --- FIXED VOICE ENDPOINT (Uses api-subscription-key) ---
 @app.post("/listen")
 async def listen_to_voice(file: UploadFile = File(...), language_code: str = Form("hi-IN")):
     # 1. READ & CLEAN KEY
