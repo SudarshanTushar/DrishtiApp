@@ -821,7 +821,13 @@ def analyze_route(start_lat: float, start_lng: float, end_lat: float, end_lng: f
         "reason": final_reason,
         "source": final_source,
         "recommendations": recommendations,
-        "risk_breakdown": risk_factors,
+        "risk_breakdown": {
+            "landslide_risk": risk_factors["landslide"]["score"],
+            "terrain_risk": risk_factors["terrain"]["score"],
+            "weather_risk": risk_factors["weather"]["score"],
+            "crowd_intel": risk_factors["crowd_intel"]["score"],
+            "iot_sensors": risk_factors["iot_sensors"]["score"]
+        },
         "terrain_data": {
             "type": terrain_type,
             "slope": f"{slope_angle}°",
