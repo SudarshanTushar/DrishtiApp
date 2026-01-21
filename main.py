@@ -1,4 +1,4 @@
-from fastapi import FastAPI, UploadFile, File, Form, Depends
+from fastapi import FastAPI, UploadFile, File, Form, Depends, Header
 from fastapi.middleware.cors import CORSMiddleware
 import time
 import os
@@ -187,7 +187,18 @@ def get_audit_trail(api_key: str = Depends(SecurityGate.verify_admin)):
     return AuditLogger.get_logs()
 
 @app.post("/admin/broadcast")
-def broadcast_alert(message: str, lat: float = 26.14, lng: float = 91.73, api_key: str = Depends(SecurityGate.verify_admin)):
+def broadcast_alert(message: str, lat: float = 26.14, lng: float = 91.73, api_key: Optional[str] = None, authorization: Optional[str] = Header(None)):
+    # Extract token from Authorization header or query param
+    token = None
+    if authorization and authorization.startswith("Bearer "):
+        token = authorization.replace("Bearer ", "")
+    elif api_key:
+        token = api_key
+    
+    # Verify token
+    if token != "NDRF-COMMAND-2026-SECURE":
+        return {"status": "error", "message": "Unauthorized"}, 403
+    
     AuditLogger.log("ADMIN", "MASS_BROADCAST", f"Msg: {message}", "CRITICAL")
     return {"status": "success", "targets": "Telecom Operators", "payload": "CAP-XML"}
 
@@ -234,14 +245,36 @@ def stop_simulation(api_key: str = Depends(SecurityGate.verify_admin)):
 # --- MISSING COMMAND DASHBOARD ENDPOINTS ---
 
 @app.get("/admin/resources")
-def get_admin_resources(api_key: str = Depends(SecurityGate.verify_admin)):
+def get_admin_resources(api_key: Optional[str] = None, authorization: Optional[str] = Header(None)):
     """Get all resource markers for CommandDashboard"""
+    # Extract token from Authorization header or query param
+    token = None
+    if authorization and authorization.startswith("Bearer "):
+        token = authorization.replace("Bearer ", "")
+    elif api_key:
+        token = api_key
+    
+    # Verify token
+    if token != "NDRF-COMMAND-2026-SECURE":
+        return {"status": "error", "message": "Unauthorized"}, 403
+    
     resources_data = ResourceSentinel.get_all()
     return {"resources": resources_data}
 
 @app.post("/admin/resources/{resource_id}/verify")
-def verify_admin_resource(resource_id: str, api_key: str = Depends(SecurityGate.verify_admin)):
+def verify_admin_resource(resource_id: str, api_key: Optional[str] = None, authorization: Optional[str] = Header(None)):
     """Verify a resource marker"""
+    # Extract token from Authorization header or query param
+    token = None
+    if authorization and authorization.startswith("Bearer "):
+        token = authorization.replace("Bearer ", "")
+    elif api_key:
+        token = api_key
+    
+    # Verify token
+    if token != "NDRF-COMMAND-2026-SECURE":
+        return {"status": "error", "message": "Unauthorized"}, 403
+    
     success = ResourceSentinel.verify_resource(resource_id)
     if success:
         AuditLogger.log("COMMANDER", "RESOURCE_VERIFIED", f"ID: {resource_id}", "INFO")
@@ -249,8 +282,19 @@ def verify_admin_resource(resource_id: str, api_key: str = Depends(SecurityGate.
     return {"status": "error", "message": "Resource not found"}
 
 @app.delete("/admin/resources/{resource_id}")
-def delete_admin_resource(resource_id: str, api_key: str = Depends(SecurityGate.verify_admin)):
+def delete_admin_resource(resource_id: str, api_key: Optional[str] = None, authorization: Optional[str] = Header(None)):
     """Delete a resource marker"""
+    # Extract token from Authorization header or query param
+    token = None
+    if authorization and authorization.startswith("Bearer "):
+        token = authorization.replace("Bearer ", "")
+    elif api_key:
+        token = api_key
+    
+    # Verify token
+    if token != "NDRF-COMMAND-2026-SECURE":
+        return {"status": "error", "message": "Unauthorized"}, 403
+    
     success = ResourceSentinel.delete_resource(resource_id)
     if success:
         AuditLogger.log("COMMANDER", "RESOURCE_DELETED", f"ID: {resource_id}", "INFO")
@@ -258,8 +302,19 @@ def delete_admin_resource(resource_id: str, api_key: str = Depends(SecurityGate.
     return {"status": "error", "message": "Resource not found"}
 
 @app.get("/admin/sos-feed")
-def get_sos_feed(api_key: str = Depends(SecurityGate.verify_admin)):
+def get_sos_feed(api_key: Optional[str] = None, authorization: Optional[str] = Header(None)):
     """Get live SOS emergency feed for CommandDashboard"""
+    # Extract token from Authorization header or query param
+    token = None
+    if authorization and authorization.startswith("Bearer "):
+        token = authorization.replace("Bearer ", "")
+    elif api_key:
+        token = api_key
+    
+    # Verify token
+    if token != "NDRF-COMMAND-2026-SECURE":
+        return {"status": "error", "message": "Unauthorized"}, 403
+    
     # Generate simulated SOS feed for demo
     sos_items = [
         {"id": f"SOS-{i}", "type": random.choice(["MEDICAL", "TRAPPED", "FIRE", "FLOOD"]), 
@@ -270,10 +325,25 @@ def get_sos_feed(api_key: str = Depends(SecurityGate.verify_admin)):
     return {"feed": sos_items}
 
 @app.post("/admin/sitrep/generate")
-def generate_sitrep(api_key: str = Depends(SecurityGate.verify_admin)):
+def generate_sitrep(api_key: Optional[str] = None, authorization: Optional[str] = Header(None)):
     """Generate SITREP PDF for CommandDashboard"""
     from fastapi.responses import Response
     import datetime
+    
+    # Extract token from Authorization header or query param
+    token = None
+    if authorization and authorization.startswith("Bearer "):
+        token = authorization.replace("Bearer ", "")
+    elif api_key:
+        token = api_key
+    
+    # Verify token
+    if token != "NDRF-COMMAND-2026-SECURE":
+        return Response(
+            content=b'{"status": "error", "message": "Unauthorized"}',
+            status_code=403,
+            media_type='application/json'
+        )
     
     # Generate simple text-based SITREP
     stats = AnalyticsEngine.get_live_stats()
@@ -315,8 +385,19 @@ def generate_sitrep(api_key: str = Depends(SecurityGate.verify_admin)):
     )
 
 @app.post("/admin/drone/analyze")
-def analyze_drone_admin(api_key: str = Depends(SecurityGate.verify_admin)):
+def analyze_drone_admin(api_key: Optional[str] = None, authorization: Optional[str] = Header(None)):
     """Drone footage analysis for CommandDashboard"""
+    # Extract token from Authorization header or query param
+    token = None
+    if authorization and authorization.startswith("Bearer "):
+        token = authorization.replace("Bearer ", "")
+    elif api_key:
+        token = api_key
+    
+    # Verify token
+    if token != "NDRF-COMMAND-2026-SECURE":
+        return {"status": "error", "message": "Unauthorized"}, 403
+    
     result = VisionEngine.analyze_damage("drone_footage_simulated.jpg")
     if "CATASTROPHIC" in result["classification"]:
         CrowdManager.admin_override(26.14, 91.73, "CLOSED")
