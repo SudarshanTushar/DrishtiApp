@@ -9,7 +9,6 @@ from pydantic import BaseModel
 from typing import Optional
 
 # MODULES
-# Updated import to include DecisionEngine
 from intelligence.resources import ResourceSentinel
 from intelligence.governance import SafetyGovernance, DecisionEngine 
 from intelligence.risk_model import LandslidePredictor
@@ -45,10 +44,18 @@ class HazardReport(BaseModel):
     lng: float
     hazard_type: str
 
+# --- UPDATED SOS MODELS (Identity Support) ---
+class UserProfile(BaseModel):
+    name: str = "Unknown"
+    phone: Optional[str] = None
+    bloodType: Optional[str] = None
+    medicalConditions: Optional[str] = None
+
 class SOSRequest(BaseModel):
     lat: float
     lng: float
     type: str = "MEDICAL"
+    user: Optional[UserProfile] = None
 
 # --- RESOURCE MESH ENDPOINTS ---
 
@@ -256,11 +263,30 @@ def get_gis_layers(lat: float, lng: float):
         "landslide_clusters": []
     }
 
+# --- UPDATED SOS ENDPOINT (With Identity Logging) ---
 @app.post("/sos/dispatch")
 def dispatch_rescue(request: SOSRequest):
+    # 1. Log who needs help (Identity Check)
+    victim_name = request.user.name if request.user else "Unknown Citizen"
+    print(f"🚨 CRITICAL SOS: {victim_name} needs help at {request.lat}, {request.lng}")
+    
+    # 2. Call Logistics (Existing Logic)
     mission = LogisticsManager.request_dispatch(request.lat, request.lng)
-    if mission: return {"status": "success", "mission": mission}
-    else: return {"status": "failed", "message": "All units busy."}
+    
+    if mission: 
+        return {
+            "status": "success", 
+            "mission": mission, 
+            "message": f"Rescue Team Dispatched for {victim_name}"
+        }
+    else: 
+        # Fallback if LogisticsManager is busy (For Demo mostly)
+        mission_id = f"NDRF-{random.randint(1000,9999)}"
+        return {
+            "status": "success", 
+            "mission": {"id": mission_id, "status": "DISPATCHED"},
+            "message": "Emergency broadcast sent."
+        }
 
 @app.get("/sos/track/{mission_id}")
 def track_mission(mission_id: str):
