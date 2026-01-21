@@ -678,7 +678,6 @@ def analyze_route(start_lat: float, start_lng: float, end_lat: float, end_lng: f
     
     # === 2. AI LANDSLIDE PREDICTION ===
     ai_result = predictor.predict(rain_input, start_lat, start_lng)
-    landslide_risk = ai_result["risk"]
     landslide_score = ai_result["ai_score"]
     
     # === 3. TERRAIN ANALYSIS ===
@@ -727,8 +726,11 @@ def analyze_route(start_lat: float, start_lng: float, end_lat: float, end_lng: f
     drill_active = sim_state["active"]
     
     # === 8. MULTI-FACTOR RISK AGGREGATION ===
+    # Derive landslide risk level from score
+    landslide_risk_level = "HIGH" if landslide_score > 70 else "MODERATE" if landslide_score > 40 else "LOW"
+    
     risk_factors = {
-        "landslide": {"score": landslide_score, "level": landslide_risk},
+        "landslide": {"score": landslide_score, "level": landslide_risk_level},
         "terrain": {"score": terrain_risk_score, "level": "HIGH" if terrain_risk_score > 70 else "MODERATE" if terrain_risk_score > 40 else "LOW"},
         "weather": {"score": min(rain_input * 2, 100), "level": "HIGH" if rain_input > 50 else "MODERATE" if rain_input > 30 else "LOW"},
         "crowd_intel": {"score": 100 if crowd_risk == "CRITICAL" else 70 if crowd_risk == "HIGH" else 30, "level": crowd_risk},
@@ -780,7 +782,7 @@ def analyze_route(start_lat: float, start_lng: float, end_lat: float, end_lng: f
     
     elif composite_score >= 60:
         final_risk = "HIGH"
-        final_reason = f"Elevated risk factors: {landslide_risk} landslide risk, challenging terrain"
+        final_reason = f"Elevated risk factors: {landslide_risk_level} landslide risk, challenging terrain"
         final_source = "Integrated Risk Assessment"
         recommendations.append("⚠️ Proceed with extreme caution")
         recommendations.append("🧭 Monitor weather updates")
