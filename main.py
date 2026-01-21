@@ -346,110 +346,167 @@ def generate_sitrep(api_key: Optional[str] = None, authorization: Optional[str] 
             media_type='application/json'
         )
     
-    # Generate simple text-based SITREP
+    # Generate HTML-based SITREP (better compatibility)
     stats = AnalyticsEngine.get_live_stats()
     audit_logs = AuditLogger.get_logs()
     
-    sitrep_content = f"""═══════════════════════════════════════════════════════════
-SITUATION REPORT (SITREP)
-National Disaster Response Force (NDRF) - Northeast Command
-═══════════════════════════════════════════════════════════
-
-Date: {datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
-Classification: RESTRICTED
-
-SUMMARY:
-- Active Missions: {stats.get('active_missions', 0)}
-- SOS Beacons: {stats.get('sos_count', 0)}
-- Pending Decisions: {len(PENDING_DECISIONS)}
-- Resources Available: {len(ResourceSentinel.get_all())}
-
-CRITICAL DECISIONS:
-{chr(10).join([f"- {d['type']} ({d.get('risk', 'UNKNOWN')} RISK)" for d in PENDING_DECISIONS[:5]]) if PENDING_DECISIONS else '- No pending decisions'}
-
-AUDIT TRAIL (Recent):
-{chr(10).join([f"- {log.get('action', 'N/A')}: {log.get('details', 'N/A')}" for log in audit_logs[-10:]]) if audit_logs else '- No recent audit logs'}
-
-═══════════════════════════════════════════════════════════
-END OF REPORT
-═══════════════════════════════════════════════════════════
-"""
+    decisions_html = '<br>'.join([f"• {d['type']} ({d.get('risk', 'UNKNOWN')} RISK)" for d in PENDING_DECISIONS[:5]]) if PENDING_DECISIONS else '• No pending decisions'
+    audit_html = '<br>'.join([f"• {log.get('action', 'N/A')}: {log.get('details', 'N/A')}" for log in audit_logs[-10:]]) if audit_logs else '• No recent audit logs'
     
-    # Create a simple PDF-like binary format (basic text PDF)
-    # This creates a minimal valid PDF structure
-    pdf_header = b"%PDF-1.4\n"
-    pdf_content = f"""1 0 obj
-<<
-/Type /Catalog
-/Pages 2 0 R
->>
-endobj
+    html_content = f"""<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>SITREP - {datetime.datetime.now().strftime('%Y-%m-%d')}</title>
+    <style>
+        body {{
+            font-family: 'Courier New', monospace;
+            background: white;
+            color: #1e293b;
+            padding: 40px;
+            max-width: 800px;
+            margin: 0 auto;
+        }}
+        .header {{
+            text-align: center;
+            border-bottom: 3px solid #1e293b;
+            padding-bottom: 20px;
+            margin-bottom: 30px;
+        }}
+        .title {{
+            font-size: 24px;
+            font-weight: bold;
+            margin-bottom: 10px;
+        }}
+        .org {{
+            font-size: 16px;
+            color: #475569;
+        }}
+        .section {{
+            margin: 30px 0;
+            padding: 20px;
+            background: #f8fafc;
+            border-left: 4px solid #3b82f6;
+        }}
+        .section-title {{
+            font-size: 18px;
+            font-weight: bold;
+            color: #1e293b;
+            margin-bottom: 15px;
+            text-transform: uppercase;
+        }}
+        .meta {{
+            display: flex;
+            justify-content: space-between;
+            margin-bottom: 20px;
+            padding: 15px;
+            background: #fef3c7;
+            border-radius: 5px;
+        }}
+        .badge {{
+            display: inline-block;
+            background: #dc2626;
+            color: white;
+            padding: 5px 15px;
+            border-radius: 5px;
+            font-size: 12px;
+            font-weight: bold;
+        }}
+        .stats {{
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 15px;
+            margin: 20px 0;
+        }}
+        .stat-box {{
+            padding: 15px;
+            background: white;
+            border: 2px solid #e2e8f0;
+            border-radius: 5px;
+        }}
+        .stat-label {{
+            font-size: 12px;
+            color: #64748b;
+            margin-bottom: 5px;
+        }}
+        .stat-value {{
+            font-size: 24px;
+            font-weight: bold;
+            color: #1e293b;
+        }}
+        ul {{
+            list-style: none;
+            padding: 0;
+        }}
+        li {{
+            padding: 8px 0;
+            border-bottom: 1px solid #e2e8f0;
+        }}
+        @media print {{
+            body {{ padding: 20px; }}
+            .section {{ page-break-inside: avoid; }}
+        }}
+    </style>
+</head>
+<body>
+    <div class="header">
+        <div class="title">SITUATION REPORT (SITREP)</div>
+        <div class="org">National Disaster Response Force (NDRF)<br>Northeast Command</div>
+    </div>
 
-2 0 obj
-<<
-/Type /Pages
-/Kids [3 0 R]
-/Count 1
->>
-endobj
+    <div class="meta">
+        <div>
+            <strong>Date:</strong> {datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
+        </div>
+        <div>
+            <span class="badge">RESTRICTED</span>
+        </div>
+    </div>
 
-3 0 obj
-<<
-/Type /Page
-/Parent 2 0 R
-/MediaBox [0 0 612 792]
-/Contents 4 0 R
-/Resources <<
-/Font <<
-/F1 <<
-/Type /Font
-/Subtype /Type1
-/BaseFont /Courier
->>
->>
->>
->>
-endobj
+    <div class="section">
+        <div class="section-title">Executive Summary</div>
+        <div class="stats">
+            <div class="stat-box">
+                <div class="stat-label">Active Missions</div>
+                <div class="stat-value">{stats.get('active_missions', 0)}</div>
+            </div>
+            <div class="stat-box">
+                <div class="stat-label">SOS Beacons</div>
+                <div class="stat-value">{stats.get('sos_count', 0)}</div>
+            </div>
+            <div class="stat-box">
+                <div class="stat-label">Pending Decisions</div>
+                <div class="stat-value">{len(PENDING_DECISIONS)}</div>
+            </div>
+            <div class="stat-box">
+                <div class="stat-label">Resources Available</div>
+                <div class="stat-value">{len(ResourceSentinel.get_all())}</div>
+            </div>
+        </div>
+    </div>
 
-4 0 obj
-<<
-/Length {len(sitrep_content) + 100}
->>
-stream
-BT
-/F1 10 Tf
-50 750 Td
-({sitrep_content.replace(chr(10), ') Tj T* (')}) Tj
-ET
-endstream
-endobj
+    <div class="section">
+        <div class="section-title">Critical Decisions</div>
+        {decisions_html}
+    </div>
 
-xref
-0 5
-0000000000 65535 f 
-0000000009 00000 n 
-0000000058 00000 n 
-0000000115 00000 n 
-0000000317 00000 n 
-trailer
-<<
-/Size 5
-/Root 1 0 R
->>
-startxref
-{400 + len(sitrep_content)}
-%%EOF
-""".encode('utf-8')
+    <div class="section">
+        <div class="section-title">Audit Trail (Recent)</div>
+        {audit_html}
+    </div>
+
+    <div style="text-align: center; margin-top: 50px; padding-top: 20px; border-top: 2px solid #e2e8f0; color: #64748b; font-size: 12px;">
+        END OF REPORT - GENERATED BY ROUTEAI-NE SYSTEM
+    </div>
+</body>
+</html>"""
     
-    pdf_data = pdf_header + pdf_content
-    
-    # Return as proper PDF
+    # Return as HTML (will display properly in browser and can be printed/saved as PDF)
     return Response(
-        content=pdf_data,
-        media_type='application/pdf',
+        content=html_content.encode('utf-8'),
+        media_type='text/html',
         headers={
-            'Content-Disposition': f'attachment; filename=SITREP_{datetime.datetime.now().strftime("%Y%m%d_%H%M%S")}.pdf',
-            'Content-Length': str(len(pdf_data))
+            'Content-Disposition': f'inline; filename=SITREP_{datetime.datetime.now().strftime("%Y%m%d_%H%M%S")}.html'
         }
     )
 
