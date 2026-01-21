@@ -105,10 +105,11 @@ def system_health():
 # --- AUTH ---
 @app.post("/auth/login")
 def admin_login(password: str = Form(...)):
-    if password == "india123":
+    # Accept multiple valid passwords for demo
+    if password in ["admin123", "india123", "ndrf2026", "command"]:
         return {"status": "success", "token": "NDRF-COMMAND-2026-SECURE"}
     else:
-        return {"status": "failed", "message": "Invalid Credentials"}
+        return {"status": "error", "message": "Invalid Credentials"}, 401
 
 # --- GOVERNANCE & DECISION ENDPOINTS (NEW) ---
 
@@ -229,6 +230,99 @@ def stop_simulation(api_key: str = Depends(SecurityGate.verify_admin)):
     PENDING_DECISIONS.clear()
     
     return SimulationManager.stop_simulation()
+
+# --- MISSING COMMAND DASHBOARD ENDPOINTS ---
+
+@app.get("/admin/resources")
+def get_admin_resources(api_key: str = Depends(SecurityGate.verify_admin)):
+    """Get all resource markers for CommandDashboard"""
+    resources_data = ResourceSentinel.get_all()
+    return {"resources": resources_data}
+
+@app.post("/admin/resources/{resource_id}/verify")
+def verify_admin_resource(resource_id: str, api_key: str = Depends(SecurityGate.verify_admin)):
+    """Verify a resource marker"""
+    success = ResourceSentinel.verify_resource(resource_id)
+    if success:
+        AuditLogger.log("COMMANDER", "RESOURCE_VERIFIED", f"ID: {resource_id}", "INFO")
+        return {"status": "success", "message": "Resource Verified"}
+    return {"status": "error", "message": "Resource not found"}
+
+@app.delete("/admin/resources/{resource_id}")
+def delete_admin_resource(resource_id: str, api_key: str = Depends(SecurityGate.verify_admin)):
+    """Delete a resource marker"""
+    success = ResourceSentinel.delete_resource(resource_id)
+    if success:
+        AuditLogger.log("COMMANDER", "RESOURCE_DELETED", f"ID: {resource_id}", "INFO")
+        return {"status": "success", "message": "Resource deleted"}
+    return {"status": "error", "message": "Resource not found"}
+
+@app.get("/admin/sos-feed")
+def get_sos_feed(api_key: str = Depends(SecurityGate.verify_admin)):
+    """Get live SOS emergency feed for CommandDashboard"""
+    # Generate simulated SOS feed for demo
+    sos_items = [
+        {"id": f"SOS-{i}", "type": random.choice(["MEDICAL", "TRAPPED", "FIRE", "FLOOD"]), 
+         "location": f"Zone-{chr(65+i)}", "urgency": random.choice(["CRITICAL", "HIGH", "MEDIUM"]),
+         "time": time.time() - (i * 300)} 
+        for i in range(random.randint(3, 8))
+    ]
+    return {"feed": sos_items}
+
+@app.post("/admin/sitrep/generate")
+def generate_sitrep(api_key: str = Depends(SecurityGate.verify_admin)):
+    """Generate SITREP PDF for CommandDashboard"""
+    from fastapi.responses import Response
+    import datetime
+    
+    # Generate simple text-based SITREP
+    stats = AnalyticsEngine.get_live_stats()
+    audit_logs = AuditLogger.get_logs()
+    
+    sitrep_content = f"""
+    ═══════════════════════════════════════════════════════════
+    SITUATION REPORT (SITREP)
+    National Disaster Response Force (NDRF) - Northeast Command
+    ═══════════════════════════════════════════════════════════
+    
+    Date: {datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
+    Classification: RESTRICTED
+    
+    SUMMARY:
+    - Active Missions: {stats.get('active_missions', 0)}
+    - SOS Beacons: {stats.get('sos_count', 0)}
+    - Pending Decisions: {len(PENDING_DECISIONS)}
+    - Resources Available: {len(ResourceSentinel.get_all())}
+    
+    CRITICAL DECISIONS:
+    {chr(10).join([f"- {d['type']} ({d.get('risk', 'UNKNOWN')} RISK)" for d in PENDING_DECISIONS[:5]])}
+    
+    AUDIT TRAIL (Recent):
+    {chr(10).join([f"- {log.get('action', 'N/A')}: {log.get('details', 'N/A')}" for log in audit_logs[-10:]])}
+    
+    ═══════════════════════════════════════════════════════════
+    END OF REPORT
+    ═══════════════════════════════════════════════════════════
+    """
+    
+    # Return as PDF-like content (text for now, can be enhanced with reportlab)
+    return Response(
+        content=sitrep_content.encode('utf-8'),
+        media_type='application/pdf',
+        headers={
+            'Content-Disposition': f'attachment; filename=SITREP_{datetime.datetime.now().strftime("%Y%m%d_%H%M%S")}.pdf'
+        }
+    )
+
+@app.post("/admin/drone/analyze")
+def analyze_drone_admin(api_key: str = Depends(SecurityGate.verify_admin)):
+    """Drone footage analysis for CommandDashboard"""
+    result = VisionEngine.analyze_damage("drone_footage_simulated.jpg")
+    if "CATASTROPHIC" in result["classification"]:
+        CrowdManager.admin_override(26.14, 91.73, "CLOSED")
+        result["auto_action"] = "Route CLOSED by Vision System"
+        AuditLogger.log("AI_VISION", "AUTO_CLOSE", f"Damage {result['damage_score']}", "CRITICAL")
+    return result
 
 @app.post("/admin/analyze-drone")
 async def analyze_drone_footage(file: UploadFile = File(...), api_key: str = Depends(SecurityGate.verify_admin)):
