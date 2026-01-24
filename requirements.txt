@@ -9,3 +9,7 @@ pandas
 joblib
 geopandas
 rasterio
+psycopg[binary,pool]
+sqlalchemy
+alembic
+geoalchemy2
