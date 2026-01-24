@@ -6,6 +6,7 @@ import requests
 import random
 import uuid
 from datetime import datetime, timezone
+from sqlalchemy.exc import SQLAlchemyError
 from pydantic import BaseModel
 from typing import Optional
 
@@ -220,17 +221,20 @@ def generate_sitrep(api_key: Optional[str] = None, authorization: Optional[str] 
     if token != "NDRF-COMMAND-2026-SECURE":
         return JSONResponse(status_code=403, content={"status": "error", "message": "Unauthorized"})
 
-    with SessionLocal() as session:
-        latest_route = session.query(Route).order_by(Route.created_at.desc()).first()
-        if not latest_route:
-            return JSONResponse(status_code=404, content={"status": "empty", "message": "No routes available for SITREP"})
+    try:
+        with SessionLocal() as session:
+            latest_route = session.query(Route).order_by(Route.created_at.desc()).first()
+            if not latest_route:
+                return JSONResponse(status_code=200, content={"status": "empty", "message": "No routes available for SITREP"})
 
-        latest_decision = (
-            session.query(AuthorityDecision)
-            .filter(AuthorityDecision.route_id == latest_route.id)
-            .order_by(AuthorityDecision.created_at.desc())
-            .first()
-        )
+            latest_decision = (
+                session.query(AuthorityDecision)
+                .filter(AuthorityDecision.route_id == latest_route.id)
+                .order_by(AuthorityDecision.created_at.desc())
+                .first()
+            )
+    except SQLAlchemyError as exc:
+        return JSONResponse(status_code=503, content={"status": "error", "message": "Database unavailable", "detail": str(exc)})
 
     risk_level = latest_route.risk_level or "UNKNOWN"
     decision_status = latest_decision.decision if latest_decision else "PENDING"
