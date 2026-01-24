@@ -24,8 +24,7 @@ class RouteSegment(Base):
     route_id = Column(pg.UUID(as_uuid=True), ForeignKey("routes.id", ondelete="CASCADE"), nullable=False)
     path = Column(Geography(geometry_type="LINESTRING", srid=4326, spatial_index=False), nullable=False)
     score = Column(Float, nullable=True)
-    metadata = Column(pg.JSONB, server_default=text("'{}'::jsonb"), nullable=False)
-
+    segment_data = Column(pg.JSONB, server_default=text("'{}'::jsonb"), nullable=False)
 
 class AuthorityDecision(Base):
     __tablename__ = "authority_decisions"
