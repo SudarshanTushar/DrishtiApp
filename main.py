@@ -301,9 +301,8 @@ def generate_sitrep(api_key: Optional[str] = None, authorization: Optional[str] 
     return JSONResponse(content=sitrep)
 
 
-@app.post("/admin/sitrep/pdf")
-def generate_sitrep_pdf(api_key: Optional[str] = None, authorization: Optional[str] = Header(None)):
-    """Generate a professional PDF SITREP using the latest route/decision."""
+def _sitrep_pdf_response(api_key: Optional[str], authorization: Optional[str]):
+    """Internal helper to generate a professional PDF SITREP and return Response."""
     token = None
     if authorization and authorization.startswith("Bearer "):
         token = authorization.replace("Bearer ", "")
@@ -363,7 +362,23 @@ def generate_sitrep_pdf(api_key: Optional[str] = None, authorization: Optional[s
 
     pdf_bytes = pdf.output(dest="S").encode("latin1")
 
-    return Response(content=pdf_bytes, media_type="application/pdf", headers={"Content-Disposition": "attachment; filename=Sitrep.pdf"})
+    return Response(
+        content=pdf_bytes,
+        media_type="application/pdf",
+        headers={"Content-Disposition": "attachment; filename=Sitrep.pdf"},
+    )
+
+
+@app.post("/admin/sitrep/pdf")
+def generate_sitrep_pdf(api_key: Optional[str] = None, authorization: Optional[str] = Header(None)):
+    """POST: Generate a professional PDF SITREP using the latest route/decision."""
+    return _sitrep_pdf_response(api_key, authorization)
+
+
+@app.get("/admin/sitrep/pdf")
+def generate_sitrep_pdf_get(api_key: Optional[str] = None, authorization: Optional[str] = Header(None)):
+    """GET: Generate a professional PDF SITREP (download-friendly)."""
+    return _sitrep_pdf_response(api_key, authorization)
 
 @app.post("/admin/drone/analyze")
 def analyze_drone_admin(api_key: Optional[str] = None, authorization: Optional[str] = Header(None)):
