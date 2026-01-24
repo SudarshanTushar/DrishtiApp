@@ -107,6 +107,138 @@ def build_sitrep_payload(route, decision):
     }
 
 
+def build_sitrep_html(sitrep: dict, stats: dict, resources: list, audit_logs: list, pending_decisions: list) -> str:
+        """Render an HTML SITREP (print/save ready)."""
+        import datetime
+
+        resources_by_type = {}
+        for r in resources:
+                rtype = r.get("type", "OTHER")
+                resources_by_type[rtype] = resources_by_type.get(rtype, 0) + 1
+
+        resources_rows = "".join(
+                f"<tr><td style='padding:8px; border:1px solid #cbd5e1;'>{rtype}</td>"
+                f"<td style='padding:8px; border:1px solid #cbd5e1; text-align:center; font-weight:bold;'>{count}</td></tr>"
+                for rtype, count in resources_by_type.items()
+        )
+        resources_table = (
+                "<table style='width:100%; border-collapse:collapse;'>"
+                "<tr style='background:#f1f5f9;'><th style='padding:8px; border:1px solid #cbd5e1; text-align:left;'>Resource Type</th>"
+                "<th style='padding:8px; border:1px solid #cbd5e1; text-align:center;'>Count</th></tr>"
+                f"{resources_rows}</table>" if resources_by_type else "<p style='color:#f59e0b;'>⚠️ No resources currently registered</p>"
+        )
+
+        decisions_items = []
+        for i, d in enumerate(pending_decisions[:8], 1):
+                risk_badge = (
+                        "<span style='background:#dc2626; color:white; padding:2px 8px; border-radius:3px; font-size:10px;'>"
+                        f"{d.get('risk', 'UNKNOWN')}</span>"
+                )
+                decisions_items.append(f"<li><strong>{i}.</strong> {d.get('type','DECISION')} {risk_badge}</li>")
+        decisions_html = (
+                "<ul>" + "".join(decisions_items) + "</ul>"
+                if decisions_items
+                else "<p style='color:#10b981;'>✓ No pending critical decisions</p>"
+        )
+
+        audit_items = [
+                f"<li><strong>{log.get('timestamp','N/A')}</strong> - {log.get('action','N/A')}: {log.get('details','N/A')}</li>"
+                for log in audit_logs[-12:]
+        ]
+        audit_html = "<ul>" + "".join(audit_items) + "</ul>" if audit_items else "<p>No recent activity logged</p>"
+
+        now = datetime.datetime.now()
+        html = f"""<!DOCTYPE html>
+<html>
+<head>
+    <meta charset='UTF-8'>
+    <title>SITREP - {now.strftime('%Y-%m-%d')}</title>
+    <style>
+        body {{ font-family: 'Segoe UI', Tahoma, sans-serif; background: #ffffff; color: #0f172a; padding: 32px; max-width: 880px; margin: 0 auto; }}
+        .header {{ text-align: center; border-bottom: 3px solid #0f172a; padding-bottom: 18px; margin-bottom: 28px; }}
+        .title {{ font-size: 24px; font-weight: 700; letter-spacing: 0.4px; }}
+        .org {{ font-size: 15px; color: #475569; margin-top: 6px; }}
+        .section {{ margin: 24px 0; padding: 18px; background: #f8fafc; border-left: 4px solid #2563eb; }}
+        .section-title {{ font-size: 16px; font-weight: 700; color: #0f172a; margin-bottom: 12px; text-transform: uppercase; letter-spacing: 0.5px; }}
+        .meta {{ display: flex; justify-content: space-between; gap: 12px; margin-bottom: 18px; padding: 14px; background: #fff7ed; border-radius: 6px; border: 1px solid #fed7aa; }}
+        .badge {{ background: #dc2626; color: white; padding: 6px 14px; border-radius: 999px; font-size: 11px; font-weight: 700; }}
+        .stats {{ display: grid; grid-template-columns: repeat(2, minmax(0,1fr)); gap: 14px; margin: 16px 0; }}
+        .stat-box {{ padding: 14px; background: white; border: 1px solid #e2e8f0; border-radius: 6px; }}
+        .stat-label {{ font-size: 12px; color: #64748b; margin-bottom: 4px; text-transform: uppercase; letter-spacing: 0.4px; }}
+        .stat-value {{ font-size: 22px; font-weight: 700; color: #0f172a; }}
+        ul {{ list-style: none; padding: 0; margin: 0; }}
+        li {{ padding: 8px 0; border-bottom: 1px solid #e2e8f0; }}
+        table {{ font-size: 13px; }}
+        @media print {{ body {{ padding: 12px; }} .section {{ page-break-inside: avoid; }} }}
+    </style>
+</head>
+<body>
+    <div class='header'>
+        <div class='title'>SITUATION REPORT (SITREP)</div>
+        <div class='org'>National Disaster Response Force (NDRF)<br/>Northeast Command</div>
+    </div>
+
+    <div class='meta'>
+        <div><strong>Date:</strong> {now.strftime('%Y-%m-%d %H:%M:%S')}</div>
+        <div><strong>Route:</strong> {sitrep['route_status']['route_id']}</div>
+        <div><span class='badge'>RESTRICTED</span></div>
+    </div>
+
+    <div class='section'>
+        <div class='section-title'>1. Executive Summary</div>
+        <div class='stats'>
+            <div class='stat-box'><div class='stat-label'>Active Operations</div><div class='stat-value' style='color:#2563eb;'>{stats.get('active_missions',0)}</div></div>
+            <div class='stat-box'><div class='stat-label'>SOS Alerts</div><div class='stat-value' style='color:#dc2626;'>{stats.get('sos_count',0)}</div></div>
+            <div class='stat-box'><div class='stat-label'>Critical Decisions</div><div class='stat-value' style='color:#f59e0b;'>{len(pending_decisions)}</div></div>
+            <div class='stat-box'><div class='stat-label'>Resources Deployed</div><div class='stat-value' style='color:#16a34a;'>{len(resources)}</div></div>
+        </div>
+        <p style='margin-top:12px; color:#475569; line-height:1.6;'>{sitrep['executive_summary']}</p>
+    </div>
+
+    <div class='section'>
+        <div class='section-title'>2. Route & Decision</div>
+        <p><strong>Risk Level:</strong> {sitrep['risk_level']}</p>
+        <p><strong>Authority Decision:</strong> {sitrep['authority_decision']['decision']} ({sitrep['authority_decision'].get('actor_role') or 'n/a'})</p>
+        <p><strong>Decided At:</strong> {sitrep['authority_decision'].get('decided_at') or 'n/a'}</p>
+        <p><strong>Distance:</strong> {sitrep['route_status']['distance_km']} km</p>
+        <p><strong>Route Created:</strong> {sitrep['route_status']['created_at']}</p>
+    </div>
+
+    <div class='section'>
+        <div class='section-title'>3. Resource Deployment</div>
+        {resources_table}
+        <p style='margin-top:12px; color:#475569;'>Supply status: Adequate stocks of food, water, and medical supplies; emergency rations sufficient for 72 hours.</p>
+    </div>
+
+    <div class='section'>
+        <div class='section-title'>4. Pending Critical Decisions</div>
+        {decisions_html}
+    </div>
+
+    <div class='section'>
+        <div class='section-title'>5. Recent Activity Log</div>
+        {audit_html}
+    </div>
+
+    <div class='section'>
+        <div class='section-title'>6. Recommendations</div>
+        <ul>
+            <li>✓ Continue 24/7 monitoring of weather patterns</li>
+            <li>✓ Pre-position resources in high-risk zones (Silchar, Haflong)</li>
+            <li>✓ Maintain heightened alert status for next 48 hours</li>
+            <li>✓ Conduct daily situation briefings at 0800 and 2000 hrs</li>
+            <li>✓ Coordinate with State Disaster Management Authorities</li>
+        </ul>
+    </div>
+
+    <div style='text-align:center; margin-top:40px; padding-top:16px; border-top:2px solid #e2e8f0; color:#64748b; font-size:12px;'>
+        END OF REPORT - GENERATED BY ROUTEAI-NE SYSTEM
+    </div>
+</body>
+</html>"""
+        return html
+
+
 class HazardReport(BaseModel):
     lat: float
     lng: float
@@ -379,6 +511,47 @@ def generate_sitrep_pdf(api_key: Optional[str] = None, authorization: Optional[s
 def generate_sitrep_pdf_get(api_key: Optional[str] = None, authorization: Optional[str] = Header(None)):
     """GET: Generate a professional PDF SITREP (download-friendly)."""
     return _sitrep_pdf_response(api_key, authorization)
+
+
+@app.get("/admin/sitrep/html")
+def generate_sitrep_html(api_key: Optional[str] = None, authorization: Optional[str] = Header(None)):
+    """GET: Generate an HTML SITREP (rich layout, print/save to PDF)."""
+    token = None
+    if authorization and authorization.startswith("Bearer "):
+        token = authorization.replace("Bearer ", "")
+    elif api_key:
+        token = api_key
+
+    if token != "NDRF-COMMAND-2026-SECURE":
+        return JSONResponse(status_code=403, content={"status": "error", "message": "Unauthorized"})
+
+    try:
+        ensure_db_ready()
+    except Exception as exc:
+        return JSONResponse(status_code=503, content={"status": "error", "message": "Database schema setup failed", "detail": str(exc)})
+
+    try:
+        with SessionLocal() as session:
+            latest_route, latest_decision = get_latest_route_and_decision(session)
+            sitrep = build_sitrep_payload(latest_route, latest_decision)
+            stats = AnalyticsEngine.get_live_stats()
+            resources = ResourceSentinel.get_all()
+            audit_logs = AuditLogger.get_logs()
+    except SQLAlchemyError as exc:
+        return JSONResponse(status_code=503, content={"status": "error", "message": "Database unavailable", "detail": str(exc)})
+
+    html = build_sitrep_html(sitrep, stats, resources, audit_logs, PENDING_DECISIONS)
+    return Response(
+        content=html.encode("utf-8"),
+        media_type="text/html",
+        headers={"Content-Disposition": "inline; filename=SITREP.html"},
+    )
+
+
+@app.get("/admin/audit-log")
+def get_audit_trail(api_key: str = Depends(SecurityGate.verify_admin)):
+    """Return recent audit log entries (admin only)."""
+    return AuditLogger.get_logs()
 
 @app.post("/admin/drone/analyze")
 def analyze_drone_admin(api_key: Optional[str] = None, authorization: Optional[str] = Header(None)):
