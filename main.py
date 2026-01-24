@@ -504,7 +504,12 @@ def _sitrep_pdf_response(api_key: Optional[str], authorization: Optional[str]):
     pdf.set_font("Arial", "I", 10)
     pdf.multi_cell(0, 7, "Prepared automatically by Command Backend. Data reflects the latest persisted route and authority decision.")
 
-    pdf_bytes = pdf.output(dest="S").encode("latin1")
+    raw_pdf = pdf.output(dest="S")
+    # fpdf2 can return str or bytearray depending on version; normalize to bytes
+    if isinstance(raw_pdf, bytearray):
+        pdf_bytes = bytes(raw_pdf)
+    else:
+        pdf_bytes = raw_pdf.encode("latin1")
 
     return Response(
         content=pdf_bytes,
