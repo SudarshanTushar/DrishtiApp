@@ -1,4 +1,4 @@
-from fastapi import FastAPI, UploadFile, File, Form, Depends, Header
+from fastapi import FastAPI, UploadFile, File, Form, Depends, Header, Query
 from fastapi.responses import JSONResponse, Response
 from fastapi.middleware.cors import CORSMiddleware
 import time
@@ -406,8 +406,8 @@ def get_sos_feed(api_key: Optional[str] = None, authorization: Optional[str] = H
     return {"feed": sos_items}
 
 @app.post("/admin/sitrep/generate")
-def generate_sitrep(api_key: Optional[str] = None, authorization: Optional[str] = Header(None)):
-    """Generate a structured SITREP from Postgres (JSON output, Heroku-safe)."""
+def generate_sitrep(api_key: Optional[str] = None, authorization: Optional[str] = Header(None), format: str = Query("json", enum=["json", "html", "pdf"])):
+    """Generate SITREP in JSON (default), or HTML/PDF when requested."""
     token = None
     if authorization and authorization.startswith("Bearer "):
         token = authorization.replace("Bearer ", "")
@@ -429,6 +429,17 @@ def generate_sitrep(api_key: Optional[str] = None, authorization: Optional[str] 
         return JSONResponse(status_code=503, content={"status": "error", "message": "Database unavailable", "detail": str(exc)})
 
     sitrep = build_sitrep_payload(latest_route, latest_decision)
+
+    # Honor requested format
+    fmt = (format or "json").lower()
+    if fmt == "pdf":
+        return _sitrep_pdf_response(api_key, authorization)
+    if fmt == "html":
+        stats = AnalyticsEngine.get_live_stats()
+        resources = ResourceSentinel.get_all()
+        audit_logs = AuditLogger.get_logs()
+        html = build_sitrep_html(sitrep, stats, resources, audit_logs, PENDING_DECISIONS)
+        return Response(content=html.encode("utf-8"), media_type="text/html", headers={"Content-Disposition": "inline; filename=SITREP.html"})
 
     return JSONResponse(content=sitrep)
 
