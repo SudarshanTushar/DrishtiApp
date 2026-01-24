@@ -5,184 +5,58 @@ import os
 import requests
 import random
 import uuid
+from datetime import datetime, timezone
 from pydantic import BaseModel
 from typing import Optional
 
 # MODULES
 from intelligence.resources import ResourceSentinel
-from intelligence.governance import SafetyGovernance, DecisionEngine 
-from intelligence.risk_model import LandslidePredictor
-from intelligence.languages import LanguageConfig
-from intelligence.crowdsource import CrowdManager
-from intelligence.analytics import AnalyticsEngine
-from intelligence.iot_network import IoTManager
-from intelligence.logistics import LogisticsManager
-# from intelligence.gis import GISEngine  <-- DISABLED TO PREVENT HEROKU CRASH
-from intelligence.simulation import SimulationManager
-from intelligence.vision import VisionEngine
-from intelligence.audit import AuditLogger
-from intelligence.security import SecurityGate 
+@app.post("/admin/sitrep/generate")
+def generate_sitrep(api_key: Optional[str] = None, authorization: Optional[str] = Header(None)):
+    """Generate a structured SITREP from Postgres (JSON output, Heroku-safe)."""
+    from fastapi.responses import JSONResponse
 
-app = FastAPI(title="RouteAI-NE Government Backend")
+    token = None
+    if authorization and authorization.startswith("Bearer "):
+        token = authorization.replace("Bearer ", "")
+    elif api_key:
+        token = api_key
 
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
+    if token != "NDRF-COMMAND-2026-SECURE":
+        return JSONResponse(status_code=403, content={"status": "error", "message": "Unauthorized"})
 
-predictor = LandslidePredictor()
+    with SessionLocal() as session:
+        latest_route = session.query(Route).order_by(Route.created_at.desc()).first()
+        if not latest_route:
+            return JSONResponse(status_code=404, content={"status": "empty", "message": "No routes available for SITREP"})
 
-# --- IN-MEMORY DECISION QUEUE (For Demo) ---
-# In production, this would be a Redis/Postgres table
-PENDING_DECISIONS = []
-
-class HazardReport(BaseModel):
-    lat: float
-    lng: float
-    hazard_type: str
-
-# --- UPDATED SOS MODELS (Identity Support) ---
-class UserProfile(BaseModel):
-    name: str = "Unknown"
-    phone: Optional[str] = None
-    bloodType: Optional[str] = None
-    medicalConditions: Optional[str] = None
-
-class SOSRequest(BaseModel):
-    lat: float
-    lng: float
-    type: str = "MEDICAL"
-    user: Optional[UserProfile] = None
-
-# --- RESOURCE MESH ENDPOINTS ---
-
-@app.get("/resources/list")
-def list_resources():
-    """Returns all known resource points (Water, Meds, Food)."""
-    return ResourceSentinel.get_all()
-
-@app.post("/resources/tag")
-def tag_resource(res_type: str, lat: float, lng: float, qty: str, api_key: Optional[str] = None):
-    """
-    Tags a resource point. 
-    If api_key matches, it is marked as VERIFIED (Government).
-    Otherwise, it is marked UNVERIFIED (Crowdsourced).
-    """
-    is_admin = (api_key == "NDRF-COMMAND-2026-SECURE")
-    new_res = ResourceSentinel.add_resource(res_type, lat, lng, qty, is_admin)
-    
-    # Audit log for Government tagged resources
-    if is_admin:
-        AuditLogger.log("ADMIN", "RESOURCE_TAG", f"Official {res_type} added at {lat},{lng}", "INFO")
-    
-    return {"status": "success", "resource": new_res}
-
-@app.post("/resources/verify/{res_id}")
-def verify_resource_endpoint(res_id: str, api_key: str = Depends(SecurityGate.verify_admin)):
-    """Commanders can mark a civilian report as OFFICIAL."""
-    success = ResourceSentinel.verify_resource(res_id)
-    if success:
-        AuditLogger.log("COMMANDER", "RESOURCE_VERIFIED", f"ID: {res_id}", "INFO")
-        return {"status": "success", "message": "Resource Verified"}
-    return {"status": "error", "message": "Resource not found"}
-
-@app.delete("/resources/delete/{res_id}")
-def delete_resource_endpoint(res_id: str, api_key: str = Depends(SecurityGate.verify_admin)):
-    """Commanders can remove fake or depleted resources."""
-    success = ResourceSentinel.delete_resource(res_id)
-    if success:
-        return {"status": "success", "message": "Resource Removed"}
-    return {"status": "error", "message": "Resource not found"}
-
-# --- HEALTH CHECK ---
-@app.get("/health/diagnostics")
-def system_health():
-    return SecurityGate.system_health_check()
-
-# --- AUTH ---
-@app.post("/auth/login")
-def admin_login(password: str = Form(...)):
-    # Accept multiple valid passwords for demo
-    if password in ["admin123", "india123", "ndrf2026", "command"]:
-        return {"status": "success", "token": "NDRF-COMMAND-2026-SECURE"}
-    else:
-        return {"status": "error", "message": "Invalid Credentials"}, 401
-
-# --- GOVERNANCE & DECISION ENDPOINTS (NEW) ---
-
-@app.get("/admin/governance/pending")
-def get_pending_decisions(api_key: str = Depends(SecurityGate.verify_admin)):
-    """
-    Returns the list of actions waiting for Human Approval.
-    """
-    # SIMULATION: If empty, generate a fake critical decision for the Demo
-    # This ensures the Judges always see something to approve.
-    if not PENDING_DECISIONS:
-        dummy_risk = {
-            "risk": "CRITICAL", 
-            "score": 98, 
-            "reason": "Cloudburst Protocol (Rain > 120mm)", 
-            "source": "IMD Realtime"
-        }
-        # Use the new DecisionEngine
-        proposal = DecisionEngine.create_proposal(dummy_risk, 26.14, 91.73)
-        PENDING_DECISIONS.append(proposal)
-        
-    return PENDING_DECISIONS
-
-@app.post("/admin/governance/decide")
-def submit_decision(decision_id: str, action: str, admin_notes: str, api_key: str = Depends(SecurityGate.verify_admin)):
-    """
-    The 'Nuclear Key'. Admin either APPROVES or REJECTS the AI's plan.
-    """
-    # 1. Find the proposal
-    proposal = next((p for p in PENDING_DECISIONS if p["id"] == decision_id), None)
-    
-    if not proposal:
-        return {"status": "error", "message": "Decision ID not found."}
-    
-    # 2. Execute Logic based on Human Choice
-    if action == "APPROVE":
-        # LOGGING (Chain of Trust)
-        AuditLogger.log(
-            actor="COMMANDER_ADMIN",
-            action=f"AUTHORIZED_{proposal['type']}",
-            details=f"Approved AI Proposal {decision_id}. Notes: {admin_notes}",
-            severity="CRITICAL"
+        latest_decision = (
+            session.query(AuthorityDecision)
+            .filter(AuthorityDecision.route_id == latest_route.id)
+            .order_by(AuthorityDecision.created_at.desc())
+            .first()
         )
-        
-        # REMOVE FROM QUEUE
-        PENDING_DECISIONS.remove(proposal)
-        
-        # EXECUTE (Simulated Execution)
-        # In real life, this triggers the SMS Gateway / NDRF Radio
-        return {
-            "status": "success", 
-            "outcome": f"🚀 EXECUTED: {proposal['type']}", 
-            "audit_hash": str(uuid.uuid4())
-        }
-        
-    elif action == "REJECT":
-        # Log the Rejection (Important for AI Training Loop)
-        AuditLogger.log(
-            actor="COMMANDER_ADMIN", 
-            action="REJECTED_ACTION", 
-            details=f"Rejected {decision_id}. Reason: {admin_notes}", 
-            severity="WARN"
-        )
-        PENDING_DECISIONS.remove(proposal)
-        return {"status": "success", "outcome": "❌ Action Cancelled. Model flagged for retraining."}
 
-# --- EXISTING ADMIN ENDPOINTS ---
+    risk_level = latest_route.risk_level or "UNKNOWN"
+    decision_status = latest_decision.decision if latest_decision else "PENDING"
 
-@app.get("/admin/stats")
-def get_admin_stats(api_key: str = Depends(SecurityGate.verify_admin)):
-    return AnalyticsEngine.get_live_stats()
+    sitrep = {
+        "executive_summary": f"Latest route {latest_route.id} assessed as {risk_level}. Decision status: {decision_status}.",
+        "route_status": {
+            "route_id": str(latest_route.id),
+            "distance_km": latest_route.distance_km,
+            "created_at": latest_route.created_at.isoformat() if latest_route.created_at else None,
+        },
+        "risk_level": risk_level,
+        "authority_decision": {
+            "decision": decision_status,
+            "actor_role": latest_decision.actor_role if latest_decision else None,
+            "decided_at": latest_decision.created_at.isoformat() if latest_decision and latest_decision.created_at else None,
+        },
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+    }
 
-@app.get("/admin/audit-logs")
+    return JSONResponse(content=sitrep)
 def get_audit_trail(api_key: str = Depends(SecurityGate.verify_admin)):
     return AuditLogger.get_logs()
 
