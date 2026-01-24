@@ -7,9 +7,11 @@ def _load_url() -> str:
     url = os.getenv("DATABASE_URL")
     if not url:
         raise RuntimeError("DATABASE_URL is not set. Provide your Heroku Postgres URL in the environment.")
-    # Normalize postgres:// to postgresql:// for psycopg compatibility
+    # Normalize and force psycopg driver (Heroku gives postgres:// without driver)
     if url.startswith("postgres://"):
         url = url.replace("postgres://", "postgresql://", 1)
+    if url.startswith("postgresql://") and "+" not in url.split("://", 1)[0]:
+        url = url.replace("postgresql://", "postgresql+psycopg://", 1)
     return url
 
 
