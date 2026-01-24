@@ -1,4 +1,5 @@
 from fastapi import FastAPI, UploadFile, File, Form, Depends, Header
+from fastapi.responses import JSONResponse, Response
 from fastapi.middleware.cors import CORSMiddleware
 import time
 import os
@@ -11,6 +12,7 @@ from sqlalchemy.exc import SQLAlchemyError
 from geoalchemy2 import WKTElement
 from pydantic import BaseModel
 from typing import Optional
+from fpdf import FPDF
 
 # MODULES
 from intelligence.resources import ResourceSentinel
@@ -48,6 +50,61 @@ def ensure_db_ready():
     with engine.begin() as conn:
         conn.execute(text("CREATE EXTENSION IF NOT EXISTS postgis"))
     Base.metadata.create_all(bind=engine)
+
+
+def get_latest_route_and_decision(session):
+    """Fetch the latest route and its latest decision; seed defaults if none exist."""
+    latest_route = session.query(Route).order_by(Route.created_at.desc()).first()
+    if not latest_route:
+        seeded_route = Route(
+            start_geom=WKTElement("POINT(91.73 26.14)", srid=4326),
+            end_geom=WKTElement("POINT(91.89 25.57)", srid=4326),
+            distance_km=148.2,
+            risk_level="MODERATE",
+        )
+        session.add(seeded_route)
+        session.flush()
+
+        seeded_decision = AuthorityDecision(
+            route_id=seeded_route.id,
+            actor_role="NDRF",
+            decision="APPROVED",
+        )
+        session.add(seeded_decision)
+        session.commit()
+        session.refresh(seeded_route)
+        session.refresh(seeded_decision)
+        return seeded_route, seeded_decision
+
+    latest_decision = (
+        session.query(AuthorityDecision)
+        .filter(AuthorityDecision.route_id == latest_route.id)
+        .order_by(AuthorityDecision.created_at.desc())
+        .first()
+    )
+    return latest_route, latest_decision
+
+
+def build_sitrep_payload(route, decision):
+    """Create a reusable SITREP dict for JSON and PDF outputs."""
+    risk_level = route.risk_level or "UNKNOWN"
+    decision_status = decision.decision if decision else "PENDING"
+
+    return {
+        "executive_summary": f"Latest route {route.id} assessed as {risk_level}. Decision status: {decision_status}.",
+        "route_status": {
+            "route_id": str(route.id),
+            "distance_km": route.distance_km,
+            "created_at": route.created_at.isoformat() if route.created_at else None,
+        },
+        "risk_level": risk_level,
+        "authority_decision": {
+            "decision": decision_status,
+            "actor_role": decision.actor_role if decision else None,
+            "decided_at": decision.created_at.isoformat() if decision and decision.created_at else None,
+        },
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+    }
 
 
 class HazardReport(BaseModel):
@@ -219,8 +276,6 @@ def get_sos_feed(api_key: Optional[str] = None, authorization: Optional[str] = H
 @app.post("/admin/sitrep/generate")
 def generate_sitrep(api_key: Optional[str] = None, authorization: Optional[str] = Header(None)):
     """Generate a structured SITREP from Postgres (JSON output, Heroku-safe)."""
-    from fastapi.responses import JSONResponse
-
     token = None
     if authorization and authorization.startswith("Bearer "):
         token = authorization.replace("Bearer ", "")
@@ -237,60 +292,78 @@ def generate_sitrep(api_key: Optional[str] = None, authorization: Optional[str] 
 
     try:
         with SessionLocal() as session:
-            latest_route = session.query(Route).order_by(Route.created_at.desc()).first()
-            if not latest_route:
-                # Seed a default route and decision so SITREP always has data (Heroku cold-start friendly)
-                seeded_route = Route(
-                    start_geom=WKTElement("POINT(91.73 26.14)", srid=4326),
-                    end_geom=WKTElement("POINT(91.89 25.57)", srid=4326),
-                    distance_km=148.2,
-                    risk_level="MODERATE",
-                )
-                session.add(seeded_route)
-                session.flush()
-
-                seeded_decision = AuthorityDecision(
-                    route_id=seeded_route.id,
-                    actor_role="NDRF",
-                    decision="APPROVED",
-                )
-                session.add(seeded_decision)
-                session.commit()
-                session.refresh(seeded_route)
-                session.refresh(seeded_decision)
-
-                latest_route = seeded_route
-                latest_decision = seeded_decision
-            else:
-                latest_decision = (
-                    session.query(AuthorityDecision)
-                    .filter(AuthorityDecision.route_id == latest_route.id)
-                    .order_by(AuthorityDecision.created_at.desc())
-                    .first()
-                )
+            latest_route, latest_decision = get_latest_route_and_decision(session)
     except SQLAlchemyError as exc:
         return JSONResponse(status_code=503, content={"status": "error", "message": "Database unavailable", "detail": str(exc)})
 
-    risk_level = latest_route.risk_level or "UNKNOWN"
-    decision_status = latest_decision.decision if latest_decision else "PENDING"
-
-    sitrep = {
-        "executive_summary": f"Latest route {latest_route.id} assessed as {risk_level}. Decision status: {decision_status}.",
-        "route_status": {
-            "route_id": str(latest_route.id),
-            "distance_km": latest_route.distance_km,
-            "created_at": latest_route.created_at.isoformat() if latest_route.created_at else None,
-        },
-        "risk_level": risk_level,
-        "authority_decision": {
-            "decision": decision_status,
-            "actor_role": latest_decision.actor_role if latest_decision else None,
-            "decided_at": latest_decision.created_at.isoformat() if latest_decision and latest_decision.created_at else None,
-        },
-        "timestamp": datetime.now(timezone.utc).isoformat(),
-    }
+    sitrep = build_sitrep_payload(latest_route, latest_decision)
 
     return JSONResponse(content=sitrep)
+
+
+@app.post("/admin/sitrep/pdf")
+def generate_sitrep_pdf(api_key: Optional[str] = None, authorization: Optional[str] = Header(None)):
+    """Generate a professional PDF SITREP using the latest route/decision."""
+    token = None
+    if authorization and authorization.startswith("Bearer "):
+        token = authorization.replace("Bearer ", "")
+    elif api_key:
+        token = api_key
+
+    if token != "NDRF-COMMAND-2026-SECURE":
+        return JSONResponse(status_code=403, content={"status": "error", "message": "Unauthorized"})
+
+    try:
+        ensure_db_ready()
+    except Exception as exc:
+        return JSONResponse(status_code=503, content={"status": "error", "message": "Database schema setup failed", "detail": str(exc)})
+
+    try:
+        with SessionLocal() as session:
+            latest_route, latest_decision = get_latest_route_and_decision(session)
+            sitrep = build_sitrep_payload(latest_route, latest_decision)
+    except SQLAlchemyError as exc:
+        return JSONResponse(status_code=503, content={"status": "error", "message": "Database unavailable", "detail": str(exc)})
+
+    pdf = FPDF()
+    pdf.set_auto_page_break(auto=True, margin=15)
+    pdf.add_page()
+
+    pdf.set_font("Arial", "B", 16)
+    pdf.cell(0, 10, "Situation Report (SITREP)", ln=1)
+
+    pdf.set_font("Arial", "", 11)
+    pdf.cell(0, 8, f"Timestamp: {sitrep['timestamp']}", ln=1)
+    pdf.cell(0, 8, "Executive Summary:", ln=1)
+    pdf.set_font("Arial", "", 11)
+    pdf.multi_cell(0, 8, sitrep["executive_summary"])
+
+    pdf.ln(4)
+    pdf.set_font("Arial", "B", 12)
+    pdf.cell(0, 8, "Route Status", ln=1)
+    pdf.set_font("Arial", "", 11)
+    pdf.cell(0, 8, f"Route ID: {sitrep['route_status']['route_id']}", ln=1)
+    distance = sitrep['route_status']['distance_km']
+    pdf.cell(0, 8, f"Distance: {distance} km" if distance is not None else "Distance: n/a", ln=1)
+    pdf.cell(0, 8, f"Created: {sitrep['route_status']['created_at']}", ln=1)
+
+    pdf.ln(2)
+    pdf.set_font("Arial", "B", 12)
+    pdf.cell(0, 8, "Risk & Decision", ln=1)
+    pdf.set_font("Arial", "", 11)
+    pdf.cell(0, 8, f"Risk Level: {sitrep['risk_level']}", ln=1)
+    decision_block = sitrep["authority_decision"]
+    pdf.cell(0, 8, f"Decision: {decision_block['decision']}", ln=1)
+    pdf.cell(0, 8, f"Actor: {decision_block.get('actor_role') or 'n/a'}", ln=1)
+    pdf.cell(0, 8, f"Decided At: {decision_block.get('decided_at') or 'n/a'}", ln=1)
+
+    pdf.ln(2)
+    pdf.set_font("Arial", "I", 10)
+    pdf.multi_cell(0, 7, "Prepared automatically by Command Backend. Data reflects the latest persisted route and authority decision.")
+
+    pdf_bytes = pdf.output(dest="S").encode("latin1")
+
+    return Response(content=pdf_bytes, media_type="application/pdf", headers={"Content-Disposition": "attachment; filename=Sitrep.pdf"})
 
 @app.post("/admin/drone/analyze")
 def analyze_drone_admin(api_key: Optional[str] = None, authorization: Optional[str] = Header(None)):
