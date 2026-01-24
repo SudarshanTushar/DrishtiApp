@@ -59,6 +59,15 @@ class SOSRequest(BaseModel):
     type: str = "MEDICAL"
     user: Optional[UserProfile] = None
 
+
+# --- AUTH LOGIN ---
+@app.post("/auth/login")
+def admin_login(password: str = Form(...)):
+    valid_passwords = {"admin123", "india123", "ndrf2026", "command"}
+    if password in valid_passwords:
+        return {"status": "success", "token": "NDRF-COMMAND-2026-SECURE"}
+    return {"status": "error", "message": "Invalid Credentials"}, 401
+
 @app.post("/admin/broadcast")
 def broadcast_alert(message: str, lat: float = 26.14, lng: float = 91.73, api_key: Optional[str] = None, authorization: Optional[str] = Header(None)):
     # Extract token from Authorization header or query param
