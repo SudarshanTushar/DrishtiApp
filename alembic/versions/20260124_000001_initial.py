@@ -37,7 +37,7 @@ def upgrade():
         sa.Column("route_id", sa.UUID(), sa.ForeignKey("routes.id", ondelete="CASCADE"), nullable=False),
         sa.Column("path", Geography(geometry_type="LINESTRING", srid=4326, spatial_index=False), nullable=False),
         sa.Column("score", sa.Float(), nullable=True),
-        sa.Column("metadata", pg.JSONB, server_default=sa.text("'{}'::jsonb"), nullable=False),
+        sa.Column("segment_data", pg.JSONB, server_default=sa.text("'{}'::jsonb"), nullable=False),
     )
 
     op.create_table(
