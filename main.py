@@ -406,7 +406,8 @@ def get_sos_feed(api_key: Optional[str] = None, authorization: Optional[str] = H
     return {"feed": sos_items}
 
 @app.post("/admin/sitrep/generate")
-def generate_sitrep(api_key: Optional[str] = None, authorization: Optional[str] = Header(None), format: str = Query("json", enum=["json", "html", "pdf"])):
+@app.get("/admin/sitrep/generate")
+def generate_sitrep(api_key: Optional[str] = None, authorization: Optional[str] = Header(None), format: str = Query("pdf", enum=["json", "html", "pdf"])):
     """Generate SITREP in JSON (default), or HTML/PDF when requested."""
     token = None
     if authorization and authorization.startswith("Bearer "):
