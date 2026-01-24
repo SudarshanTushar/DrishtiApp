@@ -11,54 +11,53 @@ from typing import Optional
 
 # MODULES
 from intelligence.resources import ResourceSentinel
-@app.post("/admin/sitrep/generate")
-def generate_sitrep(api_key: Optional[str] = None, authorization: Optional[str] = Header(None)):
-    """Generate a structured SITREP from Postgres (JSON output, Heroku-safe)."""
-    from fastapi.responses import JSONResponse
+from intelligence.governance import SafetyGovernance, DecisionEngine
+from intelligence.risk_model import LandslidePredictor
+from intelligence.languages import LanguageConfig
+from intelligence.crowdsource import CrowdManager
+from intelligence.analytics import AnalyticsEngine
+from intelligence.iot_network import IoTManager
+from intelligence.logistics import LogisticsManager
+from intelligence.simulation import SimulationManager
+from intelligence.vision import VisionEngine
+from intelligence.audit import AuditLogger
+from intelligence.security import SecurityGate
 
-    token = None
-    if authorization and authorization.startswith("Bearer "):
-        token = authorization.replace("Bearer ", "")
-    elif api_key:
-        token = api_key
+from db.session import SessionLocal
+from db.models import Route, AuthorityDecision
 
-    if token != "NDRF-COMMAND-2026-SECURE":
-        return JSONResponse(status_code=403, content={"status": "error", "message": "Unauthorized"})
+app = FastAPI(title="RouteAI-NE Government Backend")
 
-    with SessionLocal() as session:
-        latest_route = session.query(Route).order_by(Route.created_at.desc()).first()
-        if not latest_route:
-            return JSONResponse(status_code=404, content={"status": "empty", "message": "No routes available for SITREP"})
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
-        latest_decision = (
-            session.query(AuthorityDecision)
-            .filter(AuthorityDecision.route_id == latest_route.id)
-            .order_by(AuthorityDecision.created_at.desc())
-            .first()
-        )
+predictor = LandslidePredictor()
+PENDING_DECISIONS = []
 
-    risk_level = latest_route.risk_level or "UNKNOWN"
-    decision_status = latest_decision.decision if latest_decision else "PENDING"
 
-    sitrep = {
-        "executive_summary": f"Latest route {latest_route.id} assessed as {risk_level}. Decision status: {decision_status}.",
-        "route_status": {
-            "route_id": str(latest_route.id),
-            "distance_km": latest_route.distance_km,
-            "created_at": latest_route.created_at.isoformat() if latest_route.created_at else None,
-        },
-        "risk_level": risk_level,
-        "authority_decision": {
-            "decision": decision_status,
-            "actor_role": latest_decision.actor_role if latest_decision else None,
-            "decided_at": latest_decision.created_at.isoformat() if latest_decision and latest_decision.created_at else None,
-        },
-        "timestamp": datetime.now(timezone.utc).isoformat(),
-    }
+class HazardReport(BaseModel):
+    lat: float
+    lng: float
+    hazard_type: str
 
-    return JSONResponse(content=sitrep)
-def get_audit_trail(api_key: str = Depends(SecurityGate.verify_admin)):
-    return AuditLogger.get_logs()
+
+class UserProfile(BaseModel):
+    name: str = "Unknown"
+    phone: Optional[str] = None
+    bloodType: Optional[str] = None
+    medicalConditions: Optional[str] = None
+
+
+class SOSRequest(BaseModel):
+    lat: float
+    lng: float
+    type: str = "MEDICAL"
+    user: Optional[UserProfile] = None
 
 @app.post("/admin/broadcast")
 def broadcast_alert(message: str, lat: float = 26.14, lng: float = 91.73, api_key: Optional[str] = None, authorization: Optional[str] = Header(None)):
@@ -200,244 +199,50 @@ def get_sos_feed(api_key: Optional[str] = None, authorization: Optional[str] = H
 
 @app.post("/admin/sitrep/generate")
 def generate_sitrep(api_key: Optional[str] = None, authorization: Optional[str] = Header(None)):
-    """Generate SITREP PDF for CommandDashboard"""
-    from fastapi.responses import Response
-    import datetime
-    from io import BytesIO
-    
-    # Extract token from Authorization header or query param
+    """Generate a structured SITREP from Postgres (JSON output, Heroku-safe)."""
+    from fastapi.responses import JSONResponse
+
     token = None
     if authorization and authorization.startswith("Bearer "):
         token = authorization.replace("Bearer ", "")
     elif api_key:
         token = api_key
-    
-    # Verify token
+
     if token != "NDRF-COMMAND-2026-SECURE":
-        return Response(
-            content=b'{"status": "error", "message": "Unauthorized"}',
-            status_code=403,
-            media_type='application/json'
+        return JSONResponse(status_code=403, content={"status": "error", "message": "Unauthorized"})
+
+    with SessionLocal() as session:
+        latest_route = session.query(Route).order_by(Route.created_at.desc()).first()
+        if not latest_route:
+            return JSONResponse(status_code=404, content={"status": "empty", "message": "No routes available for SITREP"})
+
+        latest_decision = (
+            session.query(AuthorityDecision)
+            .filter(AuthorityDecision.route_id == latest_route.id)
+            .order_by(AuthorityDecision.created_at.desc())
+            .first()
         )
-    
-    # Generate comprehensive HTML-based SITREP (government-approved format)
-    stats = AnalyticsEngine.get_live_stats()
-    audit_logs = AuditLogger.get_logs()
-    resources = ResourceSentinel.get_all()
-    
-    # Format decisions with priority markers
-    decisions_items = []
-    for i, d in enumerate(PENDING_DECISIONS[:8], 1):
-        risk_badge = f"<span style='background: #dc2626; color: white; padding: 2px 8px; border-radius: 3px; font-size: 10px;'>{d.get('risk', 'UNKNOWN')}</span>"
-        decisions_items.append(f"<li><strong>{i}.</strong> {d['type']} {risk_badge}</li>")
-    decisions_html = '<ul>' + ''.join(decisions_items) + '</ul>' if decisions_items else '<p style="color: #10b981;">✓ No pending critical decisions</p>'
-    
-    # Format audit trail with timestamps
-    audit_items = [f"<li><strong>{log.get('timestamp', 'N/A')}</strong> - {log.get('action', 'N/A')}: {log.get('details', 'N/A')}</li>" for log in audit_logs[-12:]]
-    audit_html = '<ul>' + ''.join(audit_items) + '</ul>' if audit_items else '<p>No recent activity logged</p>'
-    
-    # Resources breakdown
-    resources_by_type = {}
-    for r in resources:
-        rtype = r.get('type', 'OTHER')
-        resources_by_type[rtype] = resources_by_type.get(rtype, 0) + 1
-    
-    resources_table = '<table style="width: 100%; border-collapse: collapse;">'
-    resources_table += '<tr style="background: #f1f5f9;"><th style="padding: 8px; border: 1px solid #cbd5e1; text-align: left;">Resource Type</th><th style="padding: 8px; border: 1px solid #cbd5e1; text-align: center;">Count</th></tr>'
-    for rtype, count in resources_by_type.items():
-        resources_table += f'<tr><td style="padding: 8px; border: 1px solid #cbd5e1;">{rtype}</td><td style="padding: 8px; border: 1px solid #cbd5e1; text-align: center; font-weight: bold;">{count}</td></tr>'
-    resources_table += '</table>' if resources_by_type else '<p style="color: #f59e0b;">⚠️ No resources currently registered</p>'
-    
-    html_content = f"""<!DOCTYPE html>
-<html>
-<head>
-    <meta charset="UTF-8">
-    <title>SITREP - {datetime.datetime.now().strftime('%Y-%m-%d')}</title>
-    <style>
-        body {{
-            font-family: 'Courier New', monospace;
-            background: white;
-            color: #1e293b;
-            padding: 40px;
-            max-width: 800px;
-            margin: 0 auto;
-        }}
-        .header {{
-            text-align: center;
-            border-bottom: 3px solid #1e293b;
-            padding-bottom: 20px;
-            margin-bottom: 30px;
-        }}
-        .title {{
-            font-size: 24px;
-            font-weight: bold;
-            margin-bottom: 10px;
-        }}
-        .org {{
-            font-size: 16px;
-            color: #475569;
-        }}
-        .section {{
-            margin: 30px 0;
-            padding: 20px;
-            background: #f8fafc;
-            border-left: 4px solid #3b82f6;
-        }}
-        .section-title {{
-            font-size: 18px;
-            font-weight: bold;
-            color: #1e293b;
-            margin-bottom: 15px;
-            text-transform: uppercase;
-        }}
-        .meta {{
-            display: flex;
-            justify-content: space-between;
-            margin-bottom: 20px;
-            padding: 15px;
-            background: #fef3c7;
-            border-radius: 5px;
-        }}
-        .badge {{
-            display: inline-block;
-            background: #dc2626;
-            color: white;
-            padding: 5px 15px;
-            border-radius: 5px;
-            font-size: 12px;
-            font-weight: bold;
-        }}
-        .stats {{
-            display: grid;
-            grid-template-columns: repeat(2, 1fr);
-            gap: 15px;
-            margin: 20px 0;
-        }}
-        .stat-box {{
-            padding: 15px;
-            background: white;
-            border: 2px solid #e2e8f0;
-            border-radius: 5px;
-        }}
-        .stat-label {{
-            font-size: 12px;
-            color: #64748b;
-            margin-bottom: 5px;
-        }}
-        .stat-value {{
-            font-size: 24px;
-            font-weight: bold;
-            color: #1e293b;
-        }}
-        ul {{
-            list-style: none;
-            padding: 0;
-        }}
-        li {{
-            padding: 8px 0;
-            border-bottom: 1px solid #e2e8f0;
-        }}
-        @media print {{
-            body {{ padding: 20px; }}
-            .section {{ page-break-inside: avoid; }}
-        }}
-    </style>
-</head>
-<body>
-    <div class="header">
-        <div class="title">SITUATION REPORT (SITREP)</div>
-        <div class="org">National Disaster Response Force (NDRF)<br>Northeast Command</div>
-    </div>
 
-    <div class="meta">
-        <div>
-            <strong>Date:</strong> {datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
-        </div>
-        <div>
-            <span class="badge">RESTRICTED</span>
-        </div>
-    </div>
+    risk_level = latest_route.risk_level or "UNKNOWN"
+    decision_status = latest_decision.decision if latest_decision else "PENDING"
 
-    <div class="section">
-        <div class="section-title">1. Executive Summary</div>
-        <div class="stats">
-            <div class="stat-box">
-                <div class="stat-label">Active Operations</div>
-                <div class="stat-value" style="color: #3b82f6;">{stats.get('active_missions', 0)}</div>
-            </div>
-            <div class="stat-box">
-                <div class="stat-label">SOS Alerts</div>
-                <div class="stat-value" style="color: #dc2626;">{stats.get('sos_count', 0)}</div>
-            </div>
-            <div class="stat-box">
-                <div class="stat-label">Critical Decisions</div>
-                <div class="stat-value" style="color: #f59e0b;">{len(PENDING_DECISIONS)}</div>
-            </div>
-            <div class="stat-box">
-                <div class="stat-label">Resources Deployed</div>
-                <div class="stat-value" style="color: #10b981;">{len(resources)}</div>
-            </div>
-        </div>
-        <p style="margin-top: 15px; color: #475569; line-height: 1.6;">System operational status: <strong style="color: #10b981;">ACTIVE</strong>. All communication channels functioning normally. DTN mesh network coverage at 87% across Northeast region.</p>
-    </div>
+    sitrep = {
+        "executive_summary": f"Latest route {latest_route.id} assessed as {risk_level}. Decision status: {decision_status}.",
+        "route_status": {
+            "route_id": str(latest_route.id),
+            "distance_km": latest_route.distance_km,
+            "created_at": latest_route.created_at.isoformat() if latest_route.created_at else None,
+        },
+        "risk_level": risk_level,
+        "authority_decision": {
+            "decision": decision_status,
+            "actor_role": latest_decision.actor_role if latest_decision else None,
+            "decided_at": latest_decision.created_at.isoformat() if latest_decision and latest_decision.created_at else None,
+        },
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+    }
 
-    <div class="section">
-        <div class="section-title">2. Weather Conditions</div>
-        <p><strong>Current Forecast:</strong> Moderate rainfall expected in Meghalaya and Assam regions. Flash flood risk elevated in low-lying areas.</p>
-        <p><strong>Landslide Risk:</strong> HIGH in Arunachal Pradesh hill districts (East Kameng, West Kameng)</p>
-        <p><strong>Visibility:</strong> Fair to moderate (2-5 km)</p>
-        <p><strong>Source:</strong> IMD Real-time Data | Last Updated: {datetime.datetime.now().strftime('%H:%M hrs')}</p>
-    </div>
-
-    <div class="section">
-        <div class="section-title">3. Operational Status</div>
-        <p><strong>Command Center:</strong> Fully operational with 24/7 monitoring</p>
-        <p><strong>Response Teams:</strong> 12 teams on standby, 3 teams deployed</p>
-        <p><strong>Communication:</strong> DTN mesh active, satellite backup available</p>
-        <p><strong>Medical Facilities:</strong> Field hospitals operational in Guwahati, Shillong, Imphal</p>
-    </div>
-
-    <div class="section">
-        <div class="section-title">4. Resource Deployment</div>
-        {resources_table}
-        <p style="margin-top: 15px;"><strong>Supply Status:</strong> Adequate stocks of food, water, and medical supplies. Emergency rations sufficient for 72 hours.</p>
-    </div>
-
-    <div class="section">
-        <div class="section-title">5. Pending Critical Decisions</div>
-        {decisions_html}
-    </div>
-
-    <div class="section">
-        <div class="section-title">6. Recent Activity Log</div>
-        {audit_html}
-    </div>
-
-    <div class="section">
-        <div class="section-title">7. Recommendations</div>
-        <ul>
-            <li>✓ Continue 24/7 monitoring of weather patterns</li>
-            <li>✓ Pre-position resources in high-risk zones (Silchar, Haflong)</li>
-            <li>✓ Maintain heightened alert status for next 48 hours</li>
-            <li>✓ Conduct daily situation briefings at 0800 and 2000 hrs</li>
-            <li>✓ Coordinate with State Disaster Management Authorities</li>
-        </ul>
-    </div>
-
-    <div style="text-align: center; margin-top: 50px; padding-top: 20px; border-top: 2px solid #e2e8f0; color: #64748b; font-size: 12px;">
-        END OF REPORT - GENERATED BY ROUTEAI-NE SYSTEM
-    </div>
-</body>
-</html>"""
-    
-    # Return as HTML (will display properly in browser and can be printed/saved as PDF)
-    return Response(
-        content=html_content.encode('utf-8'),
-        media_type='text/html',
-        headers={
-            'Content-Disposition': f'inline; filename=SITREP_{datetime.datetime.now().strftime("%Y%m%d_%H%M%S")}.html'
-        }
-    )
+    return JSONResponse(content=sitrep)
 
 @app.post("/admin/drone/analyze")
 def analyze_drone_admin(api_key: Optional[str] = None, authorization: Optional[str] = Header(None)):
