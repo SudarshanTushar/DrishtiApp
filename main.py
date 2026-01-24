@@ -6,6 +6,7 @@ import requests
 import random
 import uuid
 from datetime import datetime, timezone
+from sqlalchemy import text
 from sqlalchemy.exc import SQLAlchemyError
 from pydantic import BaseModel
 from typing import Optional
@@ -24,7 +25,7 @@ from intelligence.vision import VisionEngine
 from intelligence.audit import AuditLogger
 from intelligence.security import SecurityGate
 
-from db.session import SessionLocal
+from db.session import SessionLocal, engine, Base
 from db.models import Route, AuthorityDecision
 
 app = FastAPI(title="RouteAI-NE Government Backend")
@@ -39,6 +40,13 @@ app.add_middleware(
 
 predictor = LandslidePredictor()
 PENDING_DECISIONS = []
+
+
+def ensure_db_ready():
+    """Create PostGIS extension and tables if they are missing."""
+    with engine.begin() as conn:
+        conn.execute(text("CREATE EXTENSION IF NOT EXISTS postgis"))
+    Base.metadata.create_all(bind=engine)
 
 
 class HazardReport(BaseModel):
@@ -220,6 +228,11 @@ def generate_sitrep(api_key: Optional[str] = None, authorization: Optional[str] 
 
     if token != "NDRF-COMMAND-2026-SECURE":
         return JSONResponse(status_code=403, content={"status": "error", "message": "Unauthorized"})
+
+    try:
+        ensure_db_ready()
+    except Exception as exc:
+        return JSONResponse(status_code=503, content={"status": "error", "message": "Database schema setup failed", "detail": str(exc)})
 
     try:
         with SessionLocal() as session:
