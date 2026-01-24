@@ -1,5 +1,5 @@
 # backend/intelligence/security.py
-from fastapi import Request, HTTPException, Security
+from fastapi import Request, HTTPException, Security, Header
 from fastapi.security import APIKeyHeader, APIKeyQuery
 import os
 import time
@@ -20,20 +20,25 @@ class SecurityGate:
     @staticmethod
     async def verify_admin(
         key_header: str = Security(api_key_header),
-        key_query: str = Security(api_key_query)
+        key_query: str = Security(api_key_query),
+        authorization: str | None = Header(None),
     ):
         """
-        Locks the route. Checks both Header and URL for the key.
+        Locks the route. Accepts X-GOV-KEY, api_key query, or Authorization: Bearer <MASTER_ADMIN_KEY>.
         """
-        # 1. Check Header
+        # 1. Bearer token in Authorization
+        if authorization and authorization.startswith("Bearer ") and authorization.replace("Bearer ", "") == MASTER_ADMIN_KEY:
+            return MASTER_ADMIN_KEY
+
+        # 2. Header key
         if key_header == MASTER_ADMIN_KEY:
             return key_header
         
-        # 2. Check URL Query Param (Backup for Demo)
+        # 3. URL Query Param (Backup for Demo)
         if key_query == MASTER_ADMIN_KEY:
             return key_query
             
-        # 3. Fail if neither matches
+        # 4. Fail if neither matches
         raise HTTPException(
             status_code=403, 
             detail="ACCESS DENIED: Government Clearance Required."
