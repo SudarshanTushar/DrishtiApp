@@ -9,16 +9,23 @@ from alembic import context
 # Make backend package importable
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
+from db.session import Base  # noqa: E402
+
 config = context.config
 if config.config_file_name is not None:
     fileConfig(config.config_file_name)
 
-# Prefer env DATABASE_URL, else fall back to alembic.ini
-url = os.getenv("DATABASE_URL")
-if url:
-    config.set_main_option("sqlalchemy.url", url)
 
-target_metadata = None
+def _database_url() -> str:
+    env_url = os.getenv("DATABASE_URL")
+    if env_url:
+        return env_url.replace("postgres://", "postgresql://", 1) if env_url.startswith("postgres://") else env_url
+    return config.get_main_option("sqlalchemy.url")
+
+
+config.set_main_option("sqlalchemy.url", _database_url())
+
+target_metadata = Base.metadata
 
 
 def run_migrations_offline():
