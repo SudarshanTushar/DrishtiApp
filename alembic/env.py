@@ -19,7 +19,11 @@ if config.config_file_name is not None:
 def _database_url() -> str:
     env_url = os.getenv("DATABASE_URL")
     if env_url:
-        return env_url.replace("postgres://", "postgresql://", 1) if env_url.startswith("postgres://") else env_url
+        if env_url.startswith("postgres://"):
+            env_url = env_url.replace("postgres://", "postgresql://", 1)
+        if env_url.startswith("postgresql://") and "+" not in env_url.split("://", 1)[0]:
+            env_url = env_url.replace("postgresql://", "postgresql+psycopg://", 1)
+        return env_url
     return config.get_main_option("sqlalchemy.url")
 
 
