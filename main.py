@@ -469,13 +469,25 @@ def _sitrep_pdf_response(api_key: Optional[str], authorization: Optional[str]):
     except SQLAlchemyError as exc:
         return JSONResponse(status_code=503, content={"status": "error", "message": "Database unavailable", "detail": str(exc)})
 
+    def _format_ist(dt_str: Optional[str]) -> str:
+        if not dt_str:
+            return datetime.now(ZoneInfo("Asia/Kolkata")).strftime("%d %b %Y, %I:%M %p IST")
+        try:
+            parsed = datetime.fromisoformat(dt_str)
+        except Exception:
+            return datetime.now(ZoneInfo("Asia/Kolkata")).strftime("%d %b %Y, %I:%M %p IST")
+        if parsed.tzinfo is None:
+            parsed = parsed.replace(tzinfo=timezone.utc)
+        return parsed.astimezone(ZoneInfo("Asia/Kolkata")).strftime("%d %b %Y, %I:%M %p IST")
+
     # Derived presentation values (never leave blanks)
     district_name = "Kamrup Metro, Assam"
     risk_level = (sitrep.get("risk_level") or "MODERATE").upper()
     decision_block = sitrep.get("authority_decision") or {}
     decision_status = (decision_block.get("decision") or "CONDITIONAL").upper()
     actor_role = decision_block.get("actor_role") or "District Administration"
-    decided_at = decision_block.get("decided_at") or sitrep.get("timestamp")
+    decided_at_raw = decision_block.get("decided_at") or sitrep.get("timestamp")
+    decided_at = _format_ist(decided_at_raw)
     safety_score_lookup = {"LOW": 92, "MODERATE": 78, "HIGH": 58}
     safety_score = safety_score_lookup.get(risk_level, 70)
     primary_risks_map = {
@@ -531,8 +543,8 @@ def _sitrep_pdf_response(api_key: Optional[str], authorization: Optional[str]):
     pdf.cell(0, 8, "1. Executive Summary", ln=1)
     pdf.set_font("Arial", "", 11)
     summary = (
-        f"Based on the latest terrain and weather assessment, the evaluated route is classified as {risk_level} risk "
-        f"and has been {decision_status} by {actor_role}. Recommended action: controlled deployment with continuous monitoring."
+        "Based on the latest terrain and weather assessment, the evaluated emergency route has been classified as "
+        f"{risk_level} risk and has been {decision_status} by the {actor_role} for controlled emergency deployment."
     )
     pdf.multi_cell(0, 7, summary)
     add_spacer()
@@ -580,9 +592,9 @@ def _sitrep_pdf_response(api_key: Optional[str], authorization: Optional[str]):
     pdf.set_font("Arial", "B", 12)
     pdf.cell(0, 8, "4. Authority Decision", ln=1)
     pdf.set_font("Arial", "", 11)
-    pdf.cell(0, 7, f"Deciding Authority: {actor_role}", ln=1)
-    pdf.cell(0, 7, f"Decision Status: {decision_status}", ln=1)
-    pdf.cell(0, 7, f"Decision Timestamp: {decided_at}", ln=1)
+    pdf.cell(0, 7, f"Decision Authority: {actor_role}", ln=1)
+    pdf.cell(0, 7, f"Final Decision: {decision_status}", ln=1)
+    pdf.cell(0, 7, f"Decision Time: {decided_at}", ln=1)
     pdf.multi_cell(0, 7, "Decision Note: Cleared with readiness checks and continuous field updates.")
     add_spacer()
 
