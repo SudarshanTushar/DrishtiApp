@@ -511,10 +511,11 @@ def _sitrep_pdf_response(api_key: Optional[str], authorization: Optional[str]):
     if token != "NDRF-COMMAND-2026-SECURE":
         return JSONResponse(status_code=403, content={"status": "error", "message": "Unauthorized"})
 
-    # try:
-    #    ensure_db_ready()
-    # except Exception as exc:
-    #    print(f"DB Setup Warning: {exc}")
+    try:
+        ensure_db_ready()
+    except Exception as exc:
+        AuditLogger.log("SYSTEM", "DB_SETUP_FAIL", str(exc), "ERROR")
+        # Continue anyway as tables might exist
 
     try:
         with SessionLocal() as session:
@@ -522,35 +523,7 @@ def _sitrep_pdf_response(api_key: Optional[str], authorization: Optional[str]):
             # Use the CLEAN payload builder
             sitrep = build_sitrep_payload(latest_route, latest_decision)
     except Exception as exc:
-        # Fallback for testing/demo availability
-        print(f"Using Fallback Data due to DB error: {exc}")
-        
-        # Use simple object mocks to avoid SQLAlchemy re-import/metadata conflicts
-        class MockObj:
-            def __init__(self, **kwargs):
-                self.__dict__.update(kwargs)
-                
-        import uuid
-        from datetime import datetime
-        
-        latest_route = MockObj(
-            id=str(uuid.uuid4()),
-            start_point={"lat": 26.1445, "lon": 91.7362},
-            end_point={"lat": 26.1158, "lon": 91.7086},
-            waypoints=[],
-            distance_km=12.5,
-            risk_level="MODERATE",
-            safety_score=78.5,
-            created_at=datetime.utcnow()
-        )
-        latest_decision = MockObj(
-            decision="APPROVED",
-            authority="Cmdr. Singh (NDRF)",
-            actor_role="COMMANDER_ALPHA",
-            created_at=datetime.utcnow(),
-            notes="Proceed with caution"
-        )
-        sitrep = build_sitrep_payload(latest_route, latest_decision)
+        return JSONResponse(status_code=503, content={"status": "error", "message": "Database unavailable", "detail": str(exc)})
 
     ist_now = datetime.now(ZoneInfo("Asia/Kolkata"))
     file_slug_time = ist_now.strftime("%Y%m%d_%H%M")
