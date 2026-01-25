@@ -228,9 +228,9 @@ def build_sitrep_payload(route, decision):
 def _sitrep_pdf_response(api_key: Optional[str], authorization: Optional[str]):
     """
     Generates the Clean 'Government Boxed' Layout.
-    GUARANTEES NO 'n/a' VALUES.
+    Consumes the NEW 'Government-Pilot' Payload structure.
     """
-    # 1. Auth & Data Fetching (Keep existing logic)
+    # 1. Auth & Data Fetching
     token = None
     if authorization and authorization.startswith("Bearer "):
         token = authorization.replace("Bearer ", "")
@@ -240,50 +240,40 @@ def _sitrep_pdf_response(api_key: Optional[str], authorization: Optional[str]):
     if token != "NDRF-COMMAND-2026-SECURE":
         return JSONResponse(status_code=403, content={"status": "error", "message": "Unauthorized"})
 
-    try:
-        ensure_db_ready()
-    except Exception as exc:
-        print(f"DB Error: {exc}") # Continue, likely tables exist
-
+    # Fetch Data
     latest_route, latest_decision = None, None
     try:
+        ensure_db_ready()
         with SessionLocal() as session:
             latest_route, latest_decision = get_latest_route_and_decision(session)
+            # This returns the NEW 5-Section Data Structure
             sitrep = build_sitrep_payload(latest_route, latest_decision)
     except Exception as exc:
-        return JSONResponse(status_code=503, content={"status": "error", "message": "Database unavailable", "detail": str(exc)})
+        print(f"SITREP Data Error: {exc}")
+        return JSONResponse(status_code=503, content={"status": "error", "message": "Data Unavailable"})
 
-    # 2. Extract Data for PDF
-    executive_summary = sitrep["executive_summary"]
+    # 2. Extract Data (NEW MAPPING)
+    # The keys here must match what 'build_sitrep_payload' returns
+    unit_name = sitrep.get("unit", "NE-COMMAND")
+    dtg_val = sitrep.get("dtg", "IMMEDIATE")
     
-    overview = sitrep["route_overview"]
-    distance_text = overview.get("distance", "148.2 km")
-    risk_level = overview.get("risk_level", "MODERATE")
+    # Executive Summary Data
+    bluf_status = sitrep.get("bluf_status", "UNKNOWN")
+    bluf_threat = sitrep.get("bluf_threat", "No Data")
     
-    authority = sitrep["authority_decision"]
-    auth_name = authority.get("authority", "NDRF")
-    auth_decision = authority.get("decision", "PENDING")
-    
+    # Overview Data
     meta = sitrep.get("meta", {})
     route_id = meta.get("id", "N/A")
-    # Truncate Route ID for visual cleanliness
     if len(route_id) > 10: route_id = f"R-{route_id.split('-')[0].upper()}"
     
-    # Dates
-    ist_offset = timezone(timedelta(hours=5, minutes=30))
-    now = datetime.now(ist_offset)
-    dtg = now.strftime("%d%H%MZ %b %y").upper() 
-    date_pretty = now.strftime("%d %b %Y")
-    file_slug_time = now.strftime("%Y%m%d_%H%M")
-
-    # 3. DRAW THE PDF (The "Pro" Visual Engine)
+    # 3. DRAW THE PDF
     pdf = FPDF()
     pdf.set_auto_page_break(auto=True, margin=15)
     pdf.add_page()
 
-    # --- HEADER BOX (Government Style) ---
+    # --- HEADER BOX ---
     pdf.set_line_width(0.5)
-    pdf.rect(10, 10, 190, 40) # Outer Border
+    pdf.rect(10, 10, 190, 40)
     
     pdf.set_xy(10, 15)
     pdf.set_font("Arial", "B", 16)
@@ -292,37 +282,96 @@ def _sitrep_pdf_response(api_key: Optional[str], authorization: Optional[str]):
     pdf.set_font("Arial", "", 10)
     pdf.cell(190, 6, clean_text("DRISHTI-NE | AI-Based Disaster Decision Support System"), ln=1, align="C")
     
-    pdf.line(10, 32, 200, 32) # Divider
+    pdf.line(10, 32, 200, 32)
     
     pdf.set_xy(12, 35)
     pdf.set_font("Courier", "B", 10) 
-    pdf.cell(90, 5, clean_text(f"FROM: {auth_name}"), ln=0)
+    pdf.cell(90, 5, clean_text(f"UNIT: {unit_name}"), ln=0)
     pdf.cell(90, 5, clean_text("TO: CENTRAL COMMAND (DELHI)"), ln=1, align="R")
     
     pdf.set_xy(12, 41)
-    pdf.cell(90, 5, clean_text(f"DTG: {dtg}"), ln=0)
+    pdf.cell(90, 5, clean_text(f"DTG: {dtg_val}"), ln=0)
     pdf.cell(90, 5, clean_text(f"REP NO: {uuid.uuid4().hex[:8].upper()}"), ln=1, align="R")
 
     pdf.ln(15)
 
-    # --- EXECUTIVE SUMMARY (Gray Box) ---
+    # --- 1. EXECUTIVE SUMMARY (BLUF) ---
     pdf.set_font("Arial", "B", 12)
-    pdf.set_fill_color(240, 240, 240) # Light Gray
-    pdf.cell(0, 8, clean_text("1. EXECUTIVE SUMMARY"), ln=1, fill=True)
+    pdf.set_fill_color(240, 240, 240)
+    pdf.cell(0, 8, clean_text("1. EXECUTIVE SUMMARY (BLUF)"), ln=1, fill=True)
     pdf.ln(2)
     
+    # Status Indicator
+    pdf.set_font("Arial", "B", 10)
+    status_color = (200, 0, 0) if "RED" in bluf_status else (0, 100, 0)
+    pdf.set_text_color(*status_color)
+    pdf.cell(40, 6, clean_text(f"STATUS: {bluf_status}"), ln=1)
+    pdf.set_text_color(0, 0, 0)
+    
+    # Narrative
     pdf.set_font("Times", "", 11)
-    pdf.multi_cell(0, 6, clean_text(executive_summary))
+    pdf.multi_cell(0, 6, clean_text(bluf_threat))
+    pdf.ln(2)
+    pdf.set_font("Times", "I", 10)
+    pdf.cell(0, 6, clean_text(f"Casualties: {sitrep.get('casualty_count', 'N/A')}"), ln=1)
+    pdf.ln(3)
+
+    # --- 2. INTELLIGENCE & SENSORS ---
+    pdf.set_font("Arial", "B", 12)
+    pdf.cell(0, 8, clean_text("2. INTELLIGENCE & SENSORS"), ln=1, fill=True)
+    pdf.ln(2)
+    
+    pdf.set_font("Arial", "", 10)
+    pdf.cell(0, 6, clean_text(f"• Weather: {sitrep.get('weather_rain', 'N/A')}"), ln=1)
+    pdf.cell(0, 6, clean_text(f"• Drone Intel: {sitrep.get('drone_intel', 'N/A')}"), ln=1)
+    pdf.ln(3)
+
+    # --- 3. OPERATIONS & DECISIONS ---
+    pdf.set_font("Arial", "B", 12)
+    pdf.cell(0, 8, clean_text("3. OPERATIONS & DECISIONS"), ln=1, fill=True)
+    pdf.ln(2)
+    
+    pdf.set_font("Arial", "", 10)
+    pdf.cell(0, 6, clean_text(f"• Completed: {sitrep.get('completed_action', 'N/A')}"), ln=1)
+    pdf.set_text_color(150, 100, 0) # Amber for pending
+    pdf.cell(0, 6, clean_text(f"• Pending: {sitrep.get('pending_decision', 'N/A')}"), ln=1)
+    pdf.set_text_color(0, 0, 0)
+    pdf.ln(3)
+
+    # --- 4. LOGISTICS ---
+    pdf.set_font("Arial", "B", 12)
+    pdf.cell(0, 8, clean_text("4. LOGISTICS & RESOURCES"), ln=1, fill=True)
+    pdf.ln(2)
+    
+    pdf.set_font("Arial", "", 10)
+    pdf.cell(95, 6, clean_text(f"Teams Deployed: {sitrep.get('teams_deployed', '0')}"), border=1)
+    pdf.cell(95, 6, clean_text(f"Fuel Status: {sitrep.get('supplies_fuel', 'N/A')}"), border=1, ln=1)
     pdf.ln(5)
 
-    # --- ROUTE DETAILS (Bordered Table) ---
+    # --- 5. COMMS ---
     pdf.set_font("Arial", "B", 12)
-    pdf.cell(0, 8, clean_text("2. OPERATIONAL ROUTE DETAILS"), ln=1, fill=True)
+    pdf.cell(0, 8, clean_text("5. COMMUNICATIONS & NETWORK"), ln=1, fill=True)
     pdf.ln(2)
+    
+    pdf.set_font("Arial", "", 10)
+    pdf.cell(0, 6, clean_text(f"Backbone: {sitrep.get('internet_status', 'N/A')} | Mesh: {sitrep.get('mesh_status', 'N/A')}"), ln=1)
+    pdf.cell(0, 6, clean_text(f"Traffic: {sitrep.get('packets_relayed', 'N/A')}"), ln=1)
+    
+    # --- FOOTER ---
+    pdf.set_y(-30)
+    pdf.set_font("Arial", "B", 14)
+    pdf.set_text_color(200, 0, 0) 
+    pdf.cell(0, 10, clean_text("CLASSIFICATION: RESTRICTED"), ln=1, align="C")
+    
+    pdf.set_font("Arial", "I", 8)
+    pdf.set_text_color(100, 100, 100)
+    pdf.cell(0, 5, clean_text("Generated by Drishti-NE System. Official Use Only."), ln=1, align="C")
 
-    col_w = 60
-    val_w = 130
-    row_h = 8
+    # 4. Output
+    try:
+        return bytes(pdf.output()) 
+    except TypeError:
+        return pdf.output(dest='S').encode('latin-1')
     
     def draw_row(label, value, bold_val=False):
         pdf.set_font("Arial", "B", 10)
