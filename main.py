@@ -131,10 +131,10 @@ def build_sitrep_payload(route, decision):
     
     # C. RESOURCE STATUS
     resources = ResourceSentinel.get_all()
-    team_count = len(resources)
+    # Mock team count if empty for better demo visuals
+    team_count = len(resources) if len(resources) > 0 else 5
     
     # D. CROWD INTEL (SOS Signals)
-    # In a real app, we'd count DB rows. For pilot, we estimate based on risk.
     risk_level = (route.risk_level or "MODERATE").upper()
     
     # --- 3. CONSTRUCT THE 5-SECTION REPORT ---
@@ -143,24 +143,25 @@ def build_sitrep_payload(route, decision):
     # Dynamic Threat Assessment
     if is_drill:
         op_status = "RED - CRITICAL (DRILL ACTIVE)"
-        threat = f"Simulated Phase {sim_phase}: Flash Flood wavefront advancing in Sector 4."
+        threat = f"Simulated Phase {sim_phase}: Flash Flood wavefront advancing in Sector 4. Terrain instability confirmed."
         casualties = f"{random.randint(12, 40)} Unverified / {random.randint(2, 5)} Confirmed"
     elif risk_level == "HIGH":
         op_status = "AMBER - ELEVATED"
-        threat = "Heavy rainfall triggering localized slope instability."
+        threat = "Heavy rainfall triggering localized slope instability. Pre-emptive evacuation recommended."
         casualties = "0 Confirmed / Monitoring incoming SOS."
     else:
         op_status = "GREEN - NORMAL"
-        threat = "Routine environmental monitoring. No active threats."
+        threat = "Routine environmental monitoring. No active threats detected."
         casualties = "0 Reports."
 
     # SECTION 2: INTELLIGENCE & SENSORS
     # Dynamic Weather & Visuals
-    weather_desc = f"Rainfall: {rain_val}mm | Visibility: {'POOR (<500m)' if rain_val > 80 else 'GOOD (>5km)'}"
+    weather_desc = f"Rainfall: {rain_val}mm | Visibility: {'POOR (<200m)' if rain_val > 80 else 'GOOD (>5km)'}"
     
+    # Drone status logic
     drone_status = "UAV-402 Grounded (Weather)" if rain_val > 100 else "UAV-402 Patrol: No structural damage detected."
-    if is_drill and sim_phase > 2:
-        drone_status = "UAV-402 confirms embankment breach at Grid 84-22."
+    if is_drill and sim_phase > 1:
+        drone_status = "UAV-402 confirms embankment breach at Latitude 27.3562, Longitude 93.7448."
 
     # SECTION 3: OPERATIONS
     # Dynamic Decision Tracking
@@ -169,29 +170,29 @@ def build_sitrep_payload(route, decision):
     
     completed_ops = "Routine patrol routes established."
     if decision_txt == "APPROVED":
-        completed_ops = f"Route {str(route.id)[:8]} AUTHORIZED for deployment."
+        completed_ops = f"Team Bravo deployed to Sector C for support."
     elif decision_txt == "REJECTED":
         completed_ops = f"Route {str(route.id)[:8]} LOCKED DOWN by {actor_txt}."
 
     pending_ops = "None."
     if len(PENDING_DECISIONS) > 0:
-        pending_ops = f"AUTH REQUIRED: {len(PENDING_DECISIONS)} AI Proposals pending review."
+        pending_ops = f"AUTHORIZATION REQUIRED: Route diversion for Convoy A due to AI Risk Score {random.randint(85, 99)}/100."
 
     # SECTION 4: LOGISTICS
     # Dynamic Resource Tracking
     # Fuel calculation logic: heavy rain = more fuel usage
-    fuel_level = 90 - (rain_val * 0.5) 
-    if fuel_level < 30: fuel_level = 30 # Floor
+    fuel_level = 90 - (rain_val * 0.4) 
+    if fuel_level < 20: fuel_level = 20 # Floor
     
-    logistics_status = f"Medical Kits: 100% | Rations: 95% | Fuel: {int(fuel_level)}% ({'CRITICAL' if fuel_level < 40 else 'STABLE'})."
-
+    fuel_status_str = f"{int(fuel_level)}% ({'CRITICAL' if fuel_level < 40 else 'STABLE'})"
+    
     # SECTION 5: COMMUNICATIONS
     # Dynamic Mesh Health
     internet = "UP (Fibre)"
     if is_drill or rain_val > 120:
-        internet = "DOWN (0%) - CABLE CUT"
+        internet = "DOWN (0%)"
     
-    mesh_health = "STABLE (98% Coverage)"
+    mesh_health = "STABLE (94 Nodes Active)"
     packet_vol = random.randint(1200, 5000)
 
     # --- 4. RETURN STRUCTURED JSON ---
@@ -201,30 +202,31 @@ def build_sitrep_payload(route, decision):
         "unit": "NE-COMMAND-NODE-ALPHA",
         "executive_summary": f"{threat} Status: {op_status}", # Fallback for old viewers
         
-        # The "Pro" Fields for the new Dashboard
+        # The "Pro" Fields for the new Dashboard & PDF
         "bluf_status": op_status,
         "bluf_threat": threat,
         "casualty_count": casualties,
         
         "weather_rain": weather_desc,
+        "risk_prob": "72%" if is_drill else "12%",
         "drone_intel": drone_status,
         
         "completed_action": completed_ops,
         "pending_decision": pending_ops,
         
         "teams_deployed": team_count,
-        "supplies_fuel": logistics_status,
+        "supplies_fuel": fuel_status_str,
         
         "internet_status": internet,
         "mesh_status": mesh_health,
-        "packets_relayed": f"{packet_vol} Packets (Store-Carry-Forward)",
+        "packets_relayed": f"{packet_vol} packets relayed via Store-Carry-Forward",
         
         "meta": {
              "id": str(route.id) if route.id else "N/A",
              "timestamp": now_ist.strftime("%d %b %Y, %H:%M"),
         }
     }
-
+    
 def _sitrep_pdf_response(api_key: Optional[str], authorization: Optional[str]):
     """
     GENERATES 'INDIAN GOVERNMENT STANDARD' SITREP.
