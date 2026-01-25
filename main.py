@@ -227,8 +227,8 @@ def build_sitrep_payload(route, decision):
 
 def _sitrep_pdf_response(api_key: Optional[str], authorization: Optional[str]):
     """
-    GENERATES 'OFFICIAL CLASSIFIED' STYLE PDF.
-    Fixed: Removed invalid 'font_style' argument causing 500 Error.
+    GENERATES 'INDIAN GOVERNMENT STANDARD' SITREP.
+    Style: Serif fonts, Horizontal Rules, Strict Formatting.
     """
     # 1. Auth & Data Fetching
     token = None
@@ -247,189 +247,182 @@ def _sitrep_pdf_response(api_key: Optional[str], authorization: Optional[str]):
         with SessionLocal() as session:
             latest_route, latest_decision = get_latest_route_and_decision(session)
             sitrep = build_sitrep_payload(latest_route, latest_decision)
-    except Exception as exc:
-        print(f"SITREP Data Error: {exc}")
+    except Exception:
         return JSONResponse(status_code=503, content={"status": "error", "message": "Data Unavailable"})
 
-    # 2. Extract Data
-    unit_name = sitrep.get("unit", "NE-COMMAND")
-    dtg_val = sitrep.get("dtg", "IMMEDIATE")
-    bluf_status = sitrep.get("bluf_status", "UNKNOWN")
-    bluf_threat = sitrep.get("bluf_threat", "No Data")
+    # 2. Extract & Format Data for Govt Style
+    unit_name = sitrep.get("unit", "NE-COMMAND-NODE-ALPHA")
+    dtg_val = sitrep.get("dtg", datetime.now(timezone.utc).strftime("%d%H%MZ %b %y").upper())
     
-    meta = sitrep.get("meta", {})
-    route_id = meta.get("id", "N/A")
-    if len(route_id) > 10: route_id = f"R-{route_id.split('-')[0].upper()}"
+    # Sim/Live Logic mappings
+    bluf_status = sitrep.get("bluf_status", "GREEN - NORMAL")
+    is_critical = "RED" in bluf_status or "CRITICAL" in bluf_status
     
-    ist_offset = timezone(timedelta(hours=5, minutes=30))
-    file_slug_time = datetime.now(ist_offset).strftime("%Y%m%d_%H%M")
-
-    # 3. DRAW THE PROFESSIONAL PDF
+    # 3. DRAW THE GOVT PDF
     pdf = FPDF()
-    pdf.set_auto_page_break(auto=True, margin=15)
+    pdf.set_auto_page_break(auto=True, margin=20)
     pdf.add_page()
-
-    # --- WATERMARK ---
-    pdf.set_font("Arial", "B", 50)
-    pdf.set_text_color(240, 240, 240)
-    with pdf.rotation(45, 105, 148):
-        pdf.text(30, 190, "OFFICIAL USE ONLY")
-    pdf.set_text_color(0, 0, 0)
-
-    # --- CLASSIFICATION HEADER ---
-    pdf.set_fill_color(200, 0, 0)
-    pdf.rect(0, 0, 210, 8, 'F')
-    pdf.set_font("Arial", "B", 10)
-    pdf.set_text_color(255, 255, 255)
-    pdf.set_xy(0, 1)
-    pdf.cell(210, 6, "RESTRICTED // LAW ENFORCEMENT SENSITIVE", align='C')
-    pdf.set_text_color(0, 0, 0)
-
-    # --- OFFICIAL HEADER BLOCK ---
-    pdf.ln(10)
+    
+    # --- HEADER SECTION ---
+    # Top Banner
+    pdf.set_font("Times", "B", 12)
+    pdf.cell(0, 5, "SECURITY CLASSIFICATION:", ln=1, align='C')
+    pdf.set_font("Times", "B", 14)
+    pdf.cell(0, 7, "RESTRICTED // LAW ENFORCEMENT SENSITIVE", ln=1, align='C')
+    pdf.ln(5)
+    
+    # Horizontal Rule
     pdf.set_line_width(0.5)
-    pdf.rect(10, 18, 190, 35)
+    pdf.line(10, pdf.get_y(), 200, pdf.get_y())
+    pdf.ln(5)
     
-    pdf.set_xy(10, 22)
-    pdf.set_font("Times", "B", 18)
-    pdf.cell(190, 8, "SITUATION REPORT (SITREP)", ln=1, align="C")
+    # Metadata Block (Left & Right aligned)
+    y_start = pdf.get_y()
     
-    pdf.set_font("Arial", "", 9)
-    pdf.cell(190, 5, "DRISHTI-NE | AI-Based Disaster Decision Support System", ln=1, align="C")
+    # Left Block
+    pdf.set_font("Times", "", 10)
+    pdf.cell(100, 5, f"Issuing Unit: {unit_name}", ln=1)
+    pdf.cell(100, 5, f"DTG: {dtg_val}", ln=1)
+    pdf.cell(100, 5, "Subject: SITREP 001 - OPS DRISHTI-NE", ln=1)
     
-    pdf.line(10, 36, 200, 36)
+    # Right Block (Manually positioned)
+    pdf.set_xy(110, y_start)
+    ist_time = datetime.now(timezone(timedelta(hours=5, minutes=30))).strftime("%d Jan %Y, %H:%M IST")
+    pdf.cell(90, 5, f"Generated At: {ist_time}", ln=1, align='R')
+    pdf.set_x(110)
+    pdf.cell(90, 5, "Area of Operations: Northeast India", ln=1, align='R')
     
-    pdf.set_xy(12, 39)
-    pdf.set_font("Courier", "B", 10) 
-    pdf.cell(95, 5, f"FROM: {unit_name}", ln=0)
-    pdf.cell(95, 5, f"DTG:  {dtg_val}", ln=1, align="R")
-    
-    pdf.set_xy(12, 45)
-    pdf.cell(95, 5, "TO:   CENTRAL COMMAND (DELHI)", ln=0)
-    pdf.cell(95, 5, f"REP:  {uuid.uuid4().hex[:8].upper()}", ln=1, align="R")
+    pdf.ln(5)
+    pdf.line(10, pdf.get_y(), 200, pdf.get_y())
+    pdf.ln(8)
 
-    pdf.ln(15)
-
-    # --- 1. EXECUTIVE SUMMARY ---
-    pdf.set_font("Arial", "B", 11)
-    pdf.set_fill_color(230, 230, 235)
-    pdf.cell(0, 8, "  1. EXECUTIVE SUMMARY (BLUF)", ln=1, fill=True)
-    pdf.ln(3)
-    
-    status_fill = (220, 255, 220)
-    if "RED" in bluf_status: status_fill = (255, 220, 220)
-    elif "AMBER" in bluf_status: status_fill = (255, 245, 220)
-    
-    pdf.set_fill_color(*status_fill)
-    pdf.set_font("Arial", "B", 10)
-    pdf.cell(40, 8, " OPERATIONAL STATUS ", border=1, fill=True, align='C')
-    pdf.set_font("Arial", "B", 10)
-    pdf.cell(0, 8, f"  {bluf_status}", border=1, ln=1)
-    
+    # --- SECTION 1: EXECUTIVE SUMMARY ---
+    pdf.set_font("Times", "B", 12)
+    pdf.cell(0, 6, "1. EXECUTIVE SUMMARY (BLUF)", ln=1)
     pdf.ln(2)
+    
+    # Operational Status
     pdf.set_font("Times", "", 11)
-    pdf.multi_cell(0, 6, f"THREAT ASSESSMENT: {bluf_threat}")
-    pdf.ln(2)
+    pdf.write(5, "Operational Status:  ")
+    pdf.set_font("Times", "B", 11)
+    if is_critical:
+        pdf.set_text_color(200, 0, 0) # Dark Red for CRITICAL only
+    pdf.write(5, bluf_status)
+    pdf.set_text_color(0, 0, 0) # Reset
+    pdf.ln(6)
+    
+    # Threat
+    pdf.set_font("Times", "", 11)
+    pdf.write(5, "High-Level Threat:  ")
+    pdf.write(5, sitrep.get("bluf_threat", "Assessment pending."))
+    pdf.ln(6)
+    
+    # Casualties
+    pdf.write(5, "Casualty / SOS Overview:  ")
+    pdf.write(5, sitrep.get("casualty_count", "None."))
+    pdf.ln(8)
+    
+    pdf.line(10, pdf.get_y(), 200, pdf.get_y())
+    pdf.ln(5)
+
+    # --- SECTION 2: INTELLIGENCE & SENSORS ---
+    pdf.set_font("Times", "B", 12)
+    pdf.cell(0, 6, "2. INTELLIGENCE & SENSORS", ln=1)
     pdf.set_font("Times", "I", 10)
-    pdf.cell(0, 6, f"Casualty Report: {sitrep.get('casualty_count', 'N/A')}", ln=1)
-    pdf.ln(4)
-
-    # --- 2. INTELLIGENCE ---
-    pdf.set_font("Arial", "B", 11)
-    pdf.set_fill_color(230, 230, 235)
-    pdf.cell(0, 8, "  2. INTELLIGENCE & SENSORS", ln=1, fill=True)
+    pdf.cell(0, 5, "(Sensor Fusion & AI Assessment)", ln=1)
     pdf.ln(2)
     
-    pdf.set_font("Arial", "", 10)
-    pdf.cell(5, 6, "-", ln=0)
-    pdf.cell(0, 6, f"Meteorological: {sitrep.get('weather_rain', 'N/A')}", ln=1)
-    pdf.cell(5, 6, "-", ln=0)
-    pdf.cell(0, 6, f"Visual Intel: {sitrep.get('drone_intel', 'N/A')}", ln=1)
-    pdf.ln(4)
+    pdf.set_font("Times", "", 11)
+    # Bullets
+    pdf.cell(5, 5, "-", ln=0)
+    pdf.cell(0, 5, f"Meteorological:  {sitrep.get('weather_rain', 'No Data')}", ln=1)
+    pdf.cell(5, 5, "-", ln=0)
+    pdf.cell(0, 5, f"Geospatial AI:  Landslide Risk Probability {sitrep.get('risk_prob', 'Low')}", ln=1)
+    pdf.cell(5, 5, "-", ln=0)
+    pdf.multi_cell(0, 5, f"Aerial Reconnaissance:  {sitrep.get('drone_intel', 'UAV Standby')}")
+    pdf.ln(5)
+    
+    pdf.line(10, pdf.get_y(), 200, pdf.get_y())
+    pdf.ln(5)
 
-    # --- 3. OPERATIONS (FIXED FONT SWITCHING) ---
-    pdf.set_font("Arial", "B", 11)
-    pdf.set_fill_color(230, 230, 235)
-    pdf.cell(0, 8, "  3. OPERATIONS & DECISIONS", ln=1, fill=True)
+    # --- SECTION 3: OPERATIONS & DECISIONS ---
+    pdf.set_font("Times", "B", 12)
+    pdf.cell(0, 6, "3. OPERATIONS & DECISIONS", ln=1)
+    pdf.set_font("Times", "I", 10)
+    pdf.cell(0, 5, "(Command & Control Status)", ln=1)
     pdf.ln(2)
     
-    # COMPLETED ROW
-    pdf.set_font("Arial", "B", 10)
-    pdf.cell(35, 6, "COMPLETED:")
-    pdf.set_font("Arial", "", 10)
-    pdf.cell(0, 6, sitrep.get('completed_action', 'N/A'), ln=1)
+    pdf.set_font("Times", "", 11)
+    pdf.cell(5, 5, "-", ln=0)
+    pdf.multi_cell(0, 5, f"Completed Actions:  {sitrep.get('completed_action', 'None')}")
     
-    # PENDING ROW
-    pdf.set_font("Arial", "B", 10)
-    pdf.cell(35, 6, "PENDING:")
-    
+    pdf.cell(5, 5, "-", ln=0)
+    pdf.write(5, "Pending Command Authorization:  ")
+    # Highlight pending
     if "None" not in sitrep.get('pending_decision', 'None'):
-        pdf.set_text_color(200, 100, 0)
+        pdf.set_font("Times", "B", 11)
+    pdf.write(5, sitrep.get('pending_decision', 'None'))
+    pdf.set_font("Times", "", 11)
+    pdf.ln(8)
     
-    pdf.set_font("Arial", "", 10)
-    pdf.cell(0, 6, sitrep.get('pending_decision', 'N/A'), ln=1)
-    pdf.set_text_color(0, 0, 0)
-    pdf.ln(4)
+    pdf.line(10, pdf.get_y(), 200, pdf.get_y())
+    pdf.ln(5)
 
-    # --- 4. LOGISTICS ---
-    pdf.set_font("Arial", "B", 11)
-    pdf.set_fill_color(230, 230, 235)
-    pdf.cell(0, 8, "  4. LOGISTICS & RESOURCES", ln=1, fill=True)
+    # --- SECTION 4: LOGISTICS & RESOURCES ---
+    pdf.set_font("Times", "B", 12)
+    pdf.cell(0, 6, "4. LOGISTICS & RESOURCES", ln=1)
+    pdf.set_font("Times", "I", 10)
+    pdf.cell(0, 5, "(Resource Readiness Snapshot)", ln=1)
     pdf.ln(2)
     
-    pdf.set_font("Arial", "B", 9)
-    pdf.set_fill_color(245, 245, 245)
-    pdf.cell(95, 6, "DEPLOYED ASSETS", border=1, fill=True, align='C')
-    pdf.cell(95, 6, "CRITICAL SUPPLIES", border=1, fill=True, align='C', ln=1)
+    pdf.set_font("Times", "", 11)
+    pdf.cell(5, 5, "-", ln=0)
+    pdf.cell(0, 5, f"Teams Deployed:  {sitrep.get('teams_deployed', '0')} NDRF Units Active", ln=1)
+    pdf.cell(5, 5, "-", ln=0)
+    pdf.cell(0, 5, f"Supplies Status:  {sitrep.get('supplies_fuel', 'Calculating...')}", ln=1)
+    pdf.ln(5)
     
-    pdf.set_font("Arial", "", 10)
-    pdf.cell(95, 8, f"NDRF Teams: {sitrep.get('teams_deployed', '0')}", border=1, align='C')
-    pdf.cell(95, 8, f"Fuel Status: {sitrep.get('supplies_fuel', 'N/A')}", border=1, align='C', ln=1)
-    pdf.ln(4)
+    pdf.line(10, pdf.get_y(), 200, pdf.get_y())
+    pdf.ln(5)
 
-    # --- 5. COMMUNICATIONS ---
-    pdf.set_font("Arial", "B", 11)
-    pdf.set_fill_color(230, 230, 235)
-    pdf.cell(0, 8, "  5. COMMUNICATIONS & NETWORK HEALTH", ln=1, fill=True)
+    # --- SECTION 5: COMMUNICATIONS ---
+    pdf.set_font("Times", "B", 12)
+    pdf.cell(0, 6, "5. COMMUNICATIONS & NETWORK HEALTH", ln=1)
+    pdf.set_font("Times", "I", 10)
+    pdf.cell(0, 5, "(Resilience & Connectivity)", ln=1)
     pdf.ln(2)
     
-    pdf.set_font("Arial", "", 10)
-    pdf.cell(0, 6, f"Backbone Status: {sitrep.get('internet_status', 'N/A')}", ln=1)
-    pdf.cell(0, 6, f"Mesh Integrity:  {sitrep.get('mesh_status', 'N/A')}", ln=1)
-    pdf.cell(0, 6, f"Message Vol:     {sitrep.get('packets_relayed', 'N/A')}", ln=1)
+    pdf.set_font("Times", "", 11)
+    pdf.cell(5, 5, "-", ln=0)
+    pdf.cell(0, 5, f"Backbone Connectivity:  {sitrep.get('internet_status', 'Unknown')}", ln=1)
+    pdf.cell(5, 5, "-", ln=0)
+    pdf.cell(0, 5, f"Emergency Mesh Network:  {sitrep.get('mesh_status', 'Unknown')}", ln=1)
+    pdf.cell(5, 5, "-", ln=0)
+    pdf.cell(0, 5, f"Message Propagation:  {sitrep.get('packets_relayed', '0')} relayed", ln=1)
+    pdf.ln(10)
     
     # --- FOOTER ---
-    pdf.set_y(-35)
-    pdf.set_line_width(0.2)
-    pdf.line(10, pdf.get_y(), 200, pdf.get_y())
+    pdf.set_y(-30)
+    pdf.set_font("Times", "B", 10)
+    pdf.cell(0, 5, "FOR OFFICIAL USE ONLY", ln=1, align='C')
     
-    pdf.set_font("Courier", "", 8)
-    pdf.set_text_color(100, 100, 100)
-    pdf.cell(0, 4, f"GENERATED BY SYSTEM: DRISHTI-CORE-V1", ln=1, align="R")
-    pdf.cell(0, 4, f"DIGITAL SIGNATURE: {uuid.uuid4()}", ln=1, align="R")
-    
-    pdf.set_y(-15)
-    pdf.set_fill_color(200, 0, 0)
-    pdf.rect(0, pdf.get_y(), 210, 15, 'F')
-    pdf.set_font("Arial", "B", 10)
-    pdf.set_text_color(255, 255, 255)
-    pdf.set_xy(0, pdf.get_y()+4)
-    pdf.cell(210, 6, "RESTRICTED // LAW ENFORCEMENT SENSITIVE", align='C')
+    pdf.set_font("Times", "", 8)
+    pdf.cell(0, 4, "Auto-generated by DRISHTI-NE", ln=1, align='C')
+    pdf.cell(0, 4, "AI-Powered Disaster Decision Support System", ln=1, align='C')
+    pdf.cell(0, 4, "(Government Pilot Mode)", ln=1, align='C')
 
     # 4. Output
     try:
-        # FPDF2
         return Response(
             content=bytes(pdf.output()), 
             media_type="application/pdf", 
-            headers={"Content-Disposition": f"attachment; filename=SITREP_{file_slug_time}.pdf"}
+            headers={"Content-Disposition": f"attachment; filename=SITREP_GOV_{datetime.now().strftime('%d%H%M')}.pdf"}
         )
     except TypeError:
-        # Legacy FPDF 1.7
         return Response(
             content=pdf.output(dest='S').encode('latin-1'),
             media_type="application/pdf", 
-            headers={"Content-Disposition": f"attachment; filename=SITREP_{file_slug_time}.pdf"}
+            headers={"Content-Disposition": f"attachment; filename=SITREP_GOV_{datetime.now().strftime('%d%H%M')}.pdf"}
         )
     
     def draw_row(label, value, bold_val=False):
