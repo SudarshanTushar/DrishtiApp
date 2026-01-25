@@ -5,20 +5,10 @@ import os
 
 class LandslidePredictor:
     def __init__(self):
-        # Load the Pre-trained Random Forest Model
-        # Ensure 'model_landslide.pkl' is in the root or 'ai_engine' folder
-        try:
-            model_path = os.path.join(os.path.dirname(__file__), '../ai_engine/landslide_rf.pkl')
-            if not os.path.exists(model_path):
-                # Fallback to root if not found in ai_engine
-                model_path = 'model_landslide.pkl'
-            
-            self.model = joblib.load(model_path)
-            print(f"   🧠 [AI] Landslide Model Loaded: {model_path}")
-            self.ready = True
-        except Exception as e:
-            print(f"   ⚠️ [AI] Model Load Failed: {e}")
-            self.ready = False
+        # Disabled generic model loading to save memory on Heroku Free Tier
+        # Using heuristic fallback
+        self.ready = False
+        print(f"   [AI] Landslide Model: Running in Heuristic Mode (Memory Optimized)")
 
     def predict(self, rain_mm, lat, lng):
         """
@@ -42,9 +32,13 @@ class LandslidePredictor:
             except:
                 # Fallback Logic if model features differ
                 risk_score = (rain_mm * 0.4) + (slope * 1.2)
-        else:
-            # Deterministic Fallback
+        if self.ready:
+            # Full model check would go here if enabled
             risk_score = (rain_mm * 0.5) + (slope * 1.0)
+        else:
+            # Deterministic Fallback (Heuristic)
+            # Simplified risk calculation: Rain impact + Slope factor
+            risk_score = (rain_mm * 0.6) + (slope * 1.2)
 
         # 3. Normalize & Classify
         risk_score = min(max(risk_score, 0), 100)
@@ -53,5 +47,5 @@ class LandslidePredictor:
             "ai_score": int(risk_score),
             "slope_angle": int(slope),
             "soil_type": "Laterite" if lat > 25 else "Alluvial",
-            "prediction_source": "RandomForest_v2" if self.ready else "Heuristic_Fallback"
+            "prediction_source": "Heuristic_MemoryOptimized"
         }
