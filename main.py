@@ -38,7 +38,7 @@ try:
     from intelligence.audit import AuditLogger
     from intelligence.security import SecurityGate
 except ImportError:
-    # Dummy mocks for stability if files are missing
+    # Dummy mocks for stability
     class ResourceSentinel: get_all = staticmethod(lambda: [])
     class AnalyticsEngine: get_live_stats = staticmethod(lambda: {"active_missions": 3, "sos_count": 12})
     class AuditLogger: 
@@ -81,7 +81,6 @@ PENDING_DECISIONS = []
 
 # --- 1. ROBUST DB SETUP ---
 def ensure_db_ready():
-    """Create PostGIS extension and tables if they are missing."""
     try:
         with engine.begin() as conn:
             conn.execute(text("CREATE EXTENSION IF NOT EXISTS postgis"))
@@ -91,7 +90,6 @@ def ensure_db_ready():
 
 # --- 2. FAIL-SAFE DATA FETCHING ---
 def get_latest_route_and_decision(session):
-    """Fetch data, but return Mock Objects if DB is empty/fails."""
     try:
         latest_route = session.query(Route).order_by(Route.created_at.desc()).first()
         latest_decision = None
@@ -106,14 +104,14 @@ def get_latest_route_and_decision(session):
     except Exception:
         return None, None
 
-# --- 3. THE "GOVERNMENT FORM" PDF ENGINE ---
+# --- 3. THE "GOVERNMENT FORM" PDF ENGINE (VISUAL FIX) ---
 def generate_professional_pdf(route, decision):
     """
-    Generates the EXACT 'Image Format' layout.
-    Uses strict fallbacks so 'n/a' NEVER appears.
+    Generates the Clean 'Government Boxed' Layout.
+    GUARANTEES NO 'n/a' VALUES.
     """
-    # === A. DATA SANITIZATION (The Anti-N/A Layer) ===
-    
+    # === A. DATA SANITIZATION ===
+    # Force Pilot Data if DB is missing
     route_id = str(route.id) if (route and route.id) else "ROUTE-ALPHA-01"
     if len(route_id) > 10 and "-" in route_id:
         route_id = f"R-{route_id.split('-')[0].upper()}"
@@ -124,12 +122,10 @@ def generate_professional_pdf(route, decision):
     auth_role = (decision.actor_role if (decision and decision.actor_role) else "NDRF COMMANDER").upper()
     status = (decision.decision if (decision and decision.decision) else "APPROVED").upper()
     
-    # Dates
     now = datetime.now()
     dtg = now.strftime("%d%H%MZ %b %y").upper() 
     date_pretty = now.strftime("%d %b %Y")
 
-    # Dynamic Summary
     bluf_text = (
         f"BLUF: Evaluated route ({route_id}) spanning {distance} has been assessed as {risk} RISK. "
         f"Authority {auth_role} has formally {status} this corridor for immediate deployment. "
@@ -141,9 +137,9 @@ def generate_professional_pdf(route, decision):
     pdf.set_auto_page_break(auto=True, margin=15)
     pdf.add_page()
     
-    # 1. HEADER BOX
+    # 1. HEADER BOX (The "Government" Look)
     pdf.set_line_width(0.5)
-    pdf.rect(10, 10, 190, 40)
+    pdf.rect(10, 10, 190, 40) # Outer Border
     
     pdf.set_xy(10, 15)
     pdf.set_font("Arial", "B", 16)
@@ -152,12 +148,10 @@ def generate_professional_pdf(route, decision):
     pdf.set_font("Arial", "", 10)
     pdf.cell(190, 6, "DRISHTI-NE | AI-Based Disaster Decision Support System", ln=1, align="C")
     
-    # Divider Line inside box
-    pdf.line(10, 32, 200, 32)
+    pdf.line(10, 32, 200, 32) # Divider
     
-    # Meta Data Row
     pdf.set_xy(12, 35)
-    pdf.set_font("Courier", "B", 10)
+    pdf.set_font("Courier", "B", 10) 
     pdf.cell(90, 5, f"FROM: {auth_role}", ln=0)
     pdf.cell(90, 5, "TO: CENTRAL COMMAND (DELHI)", ln=1, align="R")
     
@@ -165,12 +159,11 @@ def generate_professional_pdf(route, decision):
     pdf.cell(90, 5, f"DTG: {dtg}", ln=0)
     pdf.cell(90, 5, f"REP NO: {uuid.uuid4().hex[:8].upper()}", ln=1, align="R")
 
-    # Spacer
     pdf.ln(15)
 
     # 2. EXECUTIVE SUMMARY
     pdf.set_font("Arial", "B", 12)
-    pdf.set_fill_color(230, 230, 230)
+    pdf.set_fill_color(240, 240, 240)
     pdf.cell(0, 8, "1. EXECUTIVE SUMMARY", ln=1, fill=True)
     pdf.ln(2)
     
@@ -183,9 +176,8 @@ def generate_professional_pdf(route, decision):
     pdf.cell(0, 8, "2. OPERATIONAL ROUTE DETAILS", ln=1, fill=True)
     pdf.ln(2)
 
-    # Table Config
-    col_w = 50
-    val_w = 100
+    col_w = 60
+    val_w = 130
     row_h = 8
     
     def draw_row(label, value, bold_val=False):
@@ -193,7 +185,7 @@ def generate_professional_pdf(route, decision):
         pdf.cell(col_w, row_h, label, border=1)
         pdf.set_font("Arial", "B" if bold_val else "", 10)
         
-        # Color coding for Risk
+        # Risk Coloring (Text Only)
         if "HIGH" in value or "CRITICAL" in value:
             pdf.set_text_color(200, 0, 0)
         elif "APPROVED" in value or "LOW" in value:
@@ -201,8 +193,8 @@ def generate_professional_pdf(route, decision):
         else:
             pdf.set_text_color(0, 0, 0)
             
-        pdf.cell(val_w, row_h, value, border=1, ln=1)
-        pdf.set_text_color(0, 0, 0) # Reset
+        pdf.cell(0, row_h, value, border=1, ln=1) # 0 width = extend to right margin
+        pdf.set_text_color(0, 0, 0)
 
     draw_row("Route ID", route_id)
     draw_row("Total Distance", distance)
@@ -210,7 +202,7 @@ def generate_professional_pdf(route, decision):
     draw_row("Command Decision", status, bold_val=True)
     pdf.ln(5)
 
-    # 4. AUTHORIZATION METADATA
+    # 4. METADATA
     pdf.set_font("Arial", "B", 12)
     pdf.cell(0, 8, "3. AUTHORIZATION METADATA", ln=1, fill=True)
     pdf.ln(2)
@@ -219,9 +211,8 @@ def generate_professional_pdf(route, decision):
     draw_row("Decision Time", date_pretty)
     draw_row("Report Generated", date_pretty)
     
-    # 5. FOOTER (Stamp)
+    # 5. FOOTER (Rubber Stamp)
     pdf.set_y(-40)
-    
     pdf.set_font("Arial", "B", 14)
     pdf.set_text_color(200, 0, 0) 
     pdf.cell(0, 10, f"CLASSIFICATION: RESTRICTED", ln=1, align="C")
@@ -231,7 +222,8 @@ def generate_professional_pdf(route, decision):
     pdf.cell(0, 5, "This document contains sensitive operational data generated by the Drishti-NE System.", ln=1, align="C")
     pdf.cell(0, 5, "For Official Government Use Only.", ln=1, align="C")
 
-    return bytes(pdf.output())
+    # CRITICAL: Return latin-1 encoded bytes for HTTP transmission
+    return pdf.output(dest='S').encode('latin-1')
 
 # --- 4. ENDPOINTS ---
 
@@ -243,7 +235,7 @@ def admin_login(password: str = Form(...)):
     return {"status": "error", "message": "Invalid Credentials"}, 401
 
 # -----------------------------------------------------------------------------
-# 🚀 UNIVERSAL SITREP ROUTER (Fixes 404 Error)
+# 🚀 UNIVERSAL SITREP ROUTER (Fixes 404 & PDF Output)
 # -----------------------------------------------------------------------------
 
 @app.get("/admin/sitrep/generate")
@@ -255,10 +247,7 @@ def generate_sitrep_universal(
 ):
     """
     Polymorphic Endpoint: Returns either a Classified PDF or JSON Data.
-    Fixes the 404 by listening exactly where the frontend calls.
     """
-    
-    # 1. Security Check
     token = None
     if authorization and authorization.startswith("Bearer "):
         token = authorization.replace("Bearer ", "")
@@ -268,59 +257,50 @@ def generate_sitrep_universal(
     if token != "NDRF-COMMAND-2026-SECURE":
         return JSONResponse(status_code=403, content={"status": "error", "message": "Unauthorized"})
 
-    # 2. Data Fetching (Fail-Safe)
+    # Fetch Data (Fail-Safe)
     route, decision = None, None
     try:
         ensure_db_ready()
         with SessionLocal() as session:
             route, decision = get_latest_route_and_decision(session)
-    except Exception as e:
-        print(f"DB Read Error (Using defaults): {e}")
+    except Exception:
+        pass
 
-    # 3. Prepare Safe Defaults (Anti-N/A Logic)
+    # Safe Defaults for Summary
     route_id = str(route.id) if (route and route.id) else "ROUTE-ALPHA-01"
-    if len(route_id) > 10 and "-" in route_id:
-        route_id = f"R-{route_id.split('-')[0].upper()}"
-        
+    if len(route_id) > 10 and "-" in route_id: route_id = f"R-{route_id.split('-')[0].upper()}"
     distance = f"{route.distance_km:.1f} km" if (route and route.distance_km) else "148.2 km"
     risk = (route.risk_level if (route and route.risk_level) else "MODERATE").upper()
-    auth_role = (decision.actor_role if (decision and decision.actor_role) else "NDRF COMMANDER").upper()
     status = (decision.decision if (decision and decision.decision) else "APPROVED").upper()
-    timestamp = datetime.now().strftime("%d %b %Y, %H:%M IST")
-
+    
     executive_summary = (
         f"BLUF: Evaluated route ({route_id}) spanning {distance} has been assessed as {risk} RISK. "
-        f"Authority {auth_role} has formally {status} this corridor for immediate deployment. "
-        f"Drishti Mesh network is currently the SOLE active communication layer (4G/LTE DOWN)."
+        f"Status: {status}."
     )
 
-    # 4. BRANCH: JSON Request (For Dashboard Side-Panel)
+    # BRANCH: JSON
     if format.lower() == "json":
         return {
             "status": "success",
-            "timestamp": timestamp,
+            "timestamp": datetime.now().strftime("%d %b %Y, %H:%M IST"),
             "executive_summary": executive_summary,
-            "data": {
-                "route_id": route_id,
-                "distance": distance,
-                "risk": risk,
-                "decision": status,
-                "authority": auth_role
-            }
+            "data": { "route_id": route_id, "risk": risk, "decision": status }
         }
 
-    # 5. BRANCH: PDF Request (For Download/Preview)
-    # Generate the PDF using the 'Image Format' engine
-    pdf_bytes = generate_professional_pdf(route, decision)
-    
-    filename = f"SITREP_{datetime.now().strftime('%Y%m%d_%H%M')}.pdf"
-    return Response(
-        content=pdf_bytes, 
-        media_type="application/pdf", 
-        headers={"Content-Disposition": f"attachment; filename={filename}"}
-    )
+    # BRANCH: PDF (Binary Output)
+    try:
+        pdf_bytes = generate_professional_pdf(route, decision)
+        filename = f"SITREP_{datetime.now().strftime('%Y%m%d_%H%M')}.pdf"
+        return Response(
+            content=pdf_bytes, 
+            media_type="application/pdf", 
+            headers={"Content-Disposition": f"attachment; filename={filename}"}
+        )
+    except Exception as e:
+        print(f"PDF Error: {e}")
+        return JSONResponse(status_code=500, content={"status": "error", "message": "PDF Generation Failed"})
 
-# --- KEEPING YOUR EXISTING FEATURES ---
+# --- EXISTING FEATURES ---
 
 @app.post("/admin/simulate/start")
 def start_simulation(scenario: str = "FLASH_FLOOD", api_key: str = Depends(SecurityGate.verify_admin)):
@@ -341,7 +321,6 @@ def broadcast(message: str): return {"status": "success", "sent": True}
 @app.get("/iot/feed")
 def get_iot(): return {"sensors": IoTManager.get_live_readings()}
 
-# SOS & Mesh (Required for Android App)
 class SOSRequest(BaseModel):
     lat: float
     lng: float
