@@ -547,7 +547,7 @@ def _sitrep_pdf_response(api_key: Optional[str], authorization: Optional[str]):
             decision="APPROVED",
             authority="Cmdr. Singh (NDRF)",
             actor_role="COMMANDER_ALPHA",
-            timestamp=datetime.utcnow(),
+            created_at=datetime.utcnow(),
             notes="Proceed with caution"
         )
         sitrep = build_sitrep_payload(latest_route, latest_decision)
@@ -664,7 +664,8 @@ def _sitrep_pdf_response(api_key: Optional[str], authorization: Optional[str]):
         AuditLogger.log("SYSTEM", "SITREP_RENDER_BLOCKED", "Forbidden field detected in PDF render", "ERROR")
         return JSONResponse(status_code=500, content={"status": "error", "message": "SITREP render blocked: forbidden internal fields"})
 
-    pdf_bytes = pdf.output(dest='S').encode("latin-1")
+    # Output PDF
+    pdf_bytes = bytes(pdf.output())
     return Response(content=pdf_bytes, media_type="application/pdf", headers={"Content-Disposition": f"attachment; filename=SITREP_{file_slug_time}.pdf"})
 
 
