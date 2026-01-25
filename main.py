@@ -90,9 +90,13 @@ def build_sitrep_payload(route, decision):
     """Create a reusable SITREP dict for JSON and PDF outputs."""
     risk_level = route.risk_level or "UNKNOWN"
     decision_status = decision.decision if decision else "PENDING"
+    executive_summary = (
+        "Based on the latest terrain and weather assessment, the evaluated emergency route has been classified as "
+        f"{risk_level} RISK and has been {decision_status} by the NDRF authority for controlled emergency deployment."
+    )
 
     return {
-        "executive_summary": f"Latest route {route.id} assessed as {risk_level}. Decision status: {decision_status}.",
+        "executive_summary": executive_summary,
         "route_status": {
             "route_id": str(route.id),
             "distance_km": route.distance_km,
@@ -109,47 +113,70 @@ def build_sitrep_payload(route, decision):
 
 
 def build_sitrep_html(sitrep: dict, stats: dict, resources: list, audit_logs: list, pending_decisions: list) -> str:
-        """Render an HTML SITREP (print/save ready)."""
-        import datetime
+    """Render an HTML SITREP (print/save ready)."""
+    import datetime
 
-        resources_by_type = {}
-        for r in resources:
-                rtype = r.get("type", "OTHER")
-                resources_by_type[rtype] = resources_by_type.get(rtype, 0) + 1
+    def fmt_ist(dt_str: Optional[str]) -> str:
+        if not dt_str:
+            return datetime.datetime.now(ZoneInfo("Asia/Kolkata")).strftime("%d %b %Y, %I:%M %p IST")
+        try:
+            parsed = datetime.datetime.fromisoformat(dt_str)
+            if parsed.tzinfo is None:
+                parsed = parsed.replace(tzinfo=datetime.timezone.utc)
+            return parsed.astimezone(ZoneInfo("Asia/Kolkata")).strftime("%d %b %Y, %I:%M %p IST")
+        except Exception:
+            return datetime.datetime.now(ZoneInfo("Asia/Kolkata")).strftime("%d %b %Y, %I:%M %p IST")
 
-        resources_rows = "".join(
-                f"<tr><td style='padding:8px; border:1px solid #cbd5e1;'>{rtype}</td>"
-                f"<td style='padding:8px; border:1px solid #cbd5e1; text-align:center; font-weight:bold;'>{count}</td></tr>"
-                for rtype, count in resources_by_type.items()
+    resources_by_type = {}
+    for r in resources:
+        rtype = r.get("type", "OTHER")
+        resources_by_type[rtype] = resources_by_type.get(rtype, 0) + 1
+
+    resources_rows = "".join(
+        f"<tr><td style='padding:8px; border:1px solid #cbd5e1;'>{rtype}</td>"
+        f"<td style='padding:8px; border:1px solid #cbd5e1; text-align:center; font-weight:bold;'>{count}</td></tr>"
+        for rtype, count in resources_by_type.items()
+    )
+    resources_table = (
+        "<table style='width:100%; border-collapse:collapse;'>"
+        "<tr style='background:#f1f5f9;'><th style='padding:8px; border:1px solid #cbd5e1; text-align:left;'>Resource Type</th>"
+        "<th style='padding:8px; border:1px solid #cbd5e1; text-align:center;'>Count</th></tr>"
+        f"{resources_rows}</table>" if resources_by_type else "<p style='color:#f59e0b;'>⚠️ No resources currently registered</p>"
+    )
+
+    decisions_items = []
+    for i, d in enumerate(pending_decisions[:8], 1):
+        risk_badge = (
+            "<span style='background:#dc2626; color:white; padding:2px 8px; border-radius:3px; font-size:10px;'>"
+            f"{d.get('risk', 'UNKNOWN')}</span>"
         )
-        resources_table = (
-                "<table style='width:100%; border-collapse:collapse;'>"
-                "<tr style='background:#f1f5f9;'><th style='padding:8px; border:1px solid #cbd5e1; text-align:left;'>Resource Type</th>"
-                "<th style='padding:8px; border:1px solid #cbd5e1; text-align:center;'>Count</th></tr>"
-                f"{resources_rows}</table>" if resources_by_type else "<p style='color:#f59e0b;'>⚠️ No resources currently registered</p>"
-        )
+        decisions_items.append(f"<li><strong>{i}.</strong> {d.get('type','DECISION')} {risk_badge}</li>")
+    decisions_html = (
+        "<ul>" + "".join(decisions_items) + "</ul>"
+        if decisions_items
+        else "<p style='color:#10b981;'>✓ No pending critical decisions</p>"
+    )
 
-        decisions_items = []
-        for i, d in enumerate(pending_decisions[:8], 1):
-                risk_badge = (
-                        "<span style='background:#dc2626; color:white; padding:2px 8px; border-radius:3px; font-size:10px;'>"
-                        f"{d.get('risk', 'UNKNOWN')}</span>"
-                )
-                decisions_items.append(f"<li><strong>{i}.</strong> {d.get('type','DECISION')} {risk_badge}</li>")
-        decisions_html = (
-                "<ul>" + "".join(decisions_items) + "</ul>"
-                if decisions_items
-                else "<p style='color:#10b981;'>✓ No pending critical decisions</p>"
-        )
+    audit_items = [
+        f"<li><strong>{log.get('timestamp','N/A')}</strong> - {log.get('action','N/A')}: {log.get('details','N/A')}</li>"
+        for log in audit_logs[-12:]
+    ]
+    audit_html = "<ul>" + "".join(audit_items) + "</ul>" if audit_items else "<p>No recent activity logged</p>"
 
-        audit_items = [
-                f"<li><strong>{log.get('timestamp','N/A')}</strong> - {log.get('action','N/A')}: {log.get('details','N/A')}</li>"
-                for log in audit_logs[-12:]
-        ]
-        audit_html = "<ul>" + "".join(audit_items) + "</ul>" if audit_items else "<p>No recent activity logged</p>"
+    now = datetime.datetime.now(ZoneInfo("Asia/Kolkata"))
+    readable_assessment = fmt_ist(sitrep.get("timestamp"))
+    readable_decided = fmt_ist(sitrep.get("authority_decision", {}).get("decided_at"))
+    distance = sitrep.get("route_status", {}).get("distance_km")
+    distance_text = f"{distance:.1f} km" if distance is not None else "Data in review"
+    risk_level = (sitrep.get("risk_level") or "MODERATE").upper()
+    decision_status = (sitrep.get("authority_decision", {}).get("decision") or "CONDITIONAL").upper()
+    decision_actor = sitrep.get("authority_decision", {}).get("actor_role") or "NDRF Authority"
+    exec_summary = (
+        "Based on the latest terrain and weather assessment, the evaluated emergency route has been classified as "
+        f"{risk_level} RISK and has been {decision_status} by the {decision_actor} for controlled emergency deployment."
+    )
 
-        now = datetime.datetime.now()
-        html = f"""<!DOCTYPE html>
+    html = f"""<!DOCTYPE html>
 <html>
 <head>
     <meta charset='UTF-8'>
@@ -179,11 +206,11 @@ def build_sitrep_html(sitrep: dict, stats: dict, resources: list, audit_logs: li
         <div class='org'>National Disaster Response Force (NDRF)<br/>Northeast Command</div>
     </div>
 
-    <div class='meta'>
-        <div><strong>Date:</strong> {now.strftime('%Y-%m-%d %H:%M:%S')}</div>
-        <div><strong>Route:</strong> {sitrep['route_status']['route_id']}</div>
-        <div><span class='badge'>RESTRICTED</span></div>
-    </div>
+        <div class='meta'>
+            <div><strong>Date:</strong> {now.strftime('%d %b %Y, %I:%M %p IST')}</div>
+            <div><strong>Assessment:</strong> Evaluated Route</div>
+            <div><span class='badge'>RESTRICTED</span></div>
+        </div>
 
     <div class='section'>
         <div class='section-title'>1. Executive Summary</div>
@@ -193,16 +220,16 @@ def build_sitrep_html(sitrep: dict, stats: dict, resources: list, audit_logs: li
             <div class='stat-box'><div class='stat-label'>Critical Decisions</div><div class='stat-value' style='color:#f59e0b;'>{len(pending_decisions)}</div></div>
             <div class='stat-box'><div class='stat-label'>Resources Deployed</div><div class='stat-value' style='color:#16a34a;'>{len(resources)}</div></div>
         </div>
-        <p style='margin-top:12px; color:#475569; line-height:1.6;'>{sitrep['executive_summary']}</p>
+        <p style='margin-top:12px; color:#475569; line-height:1.6;'>{exec_summary}</p>
     </div>
 
     <div class='section'>
         <div class='section-title'>2. Route & Decision</div>
-        <p><strong>Risk Level:</strong> {sitrep['risk_level']}</p>
-        <p><strong>Authority Decision:</strong> {sitrep['authority_decision']['decision']} ({sitrep['authority_decision'].get('actor_role') or 'n/a'})</p>
-        <p><strong>Decided At:</strong> {sitrep['authority_decision'].get('decided_at') or 'n/a'}</p>
-        <p><strong>Distance:</strong> {sitrep['route_status']['distance_km']} km</p>
-        <p><strong>Route Created:</strong> {sitrep['route_status']['created_at']}</p>
+        <p><strong>Risk Level:</strong> {risk_level}</p>
+        <p><strong>Authority Decision:</strong> {decision_status} ({decision_actor})</p>
+        <p><strong>Decision Time:</strong> {readable_decided}</p>
+        <p><strong>Distance:</strong> {distance_text}</p>
+        <p><strong>Assessment Time:</strong> {readable_assessment}</p>
     </div>
 
     <div class='section'>
@@ -237,7 +264,7 @@ def build_sitrep_html(sitrep: dict, stats: dict, resources: list, audit_logs: li
     </div>
 </body>
 </html>"""
-        return html
+    return html
 
 
 class HazardReport(BaseModel):
