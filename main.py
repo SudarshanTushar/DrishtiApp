@@ -87,51 +87,28 @@ def get_latest_route_and_decision(session):
 
 
 def build_sitrep_payload(route, decision):
-    """
-    PUBLIC SITREP PAYLOAD (SAFE FOR UI + JUDGES)
-    No UUIDs. No raw timestamps. No metadata.
-    """
-    risk_level = (route.risk_level or "MODERATE").upper()
-    decision_status = (decision.decision if decision else "CONDITIONAL").upper()
-    authority = decision.actor_role if decision and decision.actor_role else "NDRF Authority"
-
-    # IST time formatting
-    def fmt_ist(dt):
-        if not dt:
-            dt = datetime.now(timezone.utc)
-        if dt.tzinfo is None:
-            dt = dt.replace(tzinfo=timezone.utc)
-        return dt.astimezone(ZoneInfo("Asia/Kolkata")).strftime("%d %b %Y, %I:%M %p IST")
-
+    """Create a reusable SITREP dict for JSON and PDF outputs."""
+    risk_level = route.risk_level or "UNKNOWN"
+    decision_status = decision.decision if decision else "PENDING"
     executive_summary = (
-        "Based on the latest terrain and weather assessment, the evaluated emergency route "
-        f"has been classified as {risk_level} RISK and has been {decision_status} "
-        f"by the {authority} for controlled emergency deployment."
+        "Based on the latest terrain and weather assessment, the evaluated emergency route has been classified as "
+        f"{risk_level} RISK and has been {decision_status} by the NDRF authority for controlled emergency deployment."
     )
-
-    safety_map = {
-        "LOW": "SAFE",
-        "MODERATE": "CONDITIONAL",
-        "HIGH": "UNSAFE",
-        "CRITICAL": "UNSAFE",
-    }
 
     return {
         "executive_summary": executive_summary,
-
-        "route_overview": {
-            "distance": f"{route.distance_km:.1f} km" if route.distance_km else "Under Review",
-            "risk_level": risk_level,
-            "safety_classification": safety_map.get(risk_level, "CONDITIONAL"),
+        "route_status": {
+            "route_id": str(route.id),
+            "distance_km": route.distance_km,
+            "created_at": route.created_at.isoformat() if route.created_at else None,
         },
-
+        "risk_level": risk_level,
         "authority_decision": {
-            "authority": authority,
             "decision": decision_status,
-            "decision_time": fmt_ist(decision.created_at if decision else None),
+            "actor_role": decision.actor_role if decision else None,
+            "decided_at": decision.created_at.isoformat() if decision and decision.created_at else None,
         },
-
-        "generated_at": fmt_ist(datetime.now(timezone.utc)),
+        "timestamp": datetime.now(timezone.utc).isoformat(),
     }
 
 
@@ -187,20 +164,17 @@ def build_sitrep_html(sitrep: dict, stats: dict, resources: list, audit_logs: li
     audit_html = "<ul>" + "".join(audit_items) + "</ul>" if audit_items else "<p>No recent activity logged</p>"
 
     now = datetime.datetime.now(ZoneInfo("Asia/Kolkata"))
-    route_overview = sitrep.get("route_overview", {})
-    authority_block = sitrep.get("authority_decision", {})
-
-    distance_text = route_overview.get("distance", "Under Review")
-    risk_level = route_overview.get("risk_level", "MODERATE")
-    safety_classification = route_overview.get("safety_classification", "CONDITIONAL")
-
-    decision_status = authority_block.get("decision", "CONDITIONAL")
-    decision_actor = authority_block.get("authority", "NDRF Authority")
-    decision_time = authority_block.get("decision_time", "Time Unavailable")
-
-    generated_at = sitrep.get("generated_at", "Time Unavailable")
-    exec_summary = sitrep.get("executive_summary", "")
-
+    readable_assessment = fmt_ist(sitrep.get("timestamp"))
+    readable_decided = fmt_ist(sitrep.get("authority_decision", {}).get("decided_at"))
+    distance = sitrep.get("route_status", {}).get("distance_km")
+    distance_text = f"{distance:.1f} km" if distance is not None else "Data in review"
+    risk_level = (sitrep.get("risk_level") or "MODERATE").upper()
+    decision_status = (sitrep.get("authority_decision", {}).get("decision") or "CONDITIONAL").upper()
+    decision_actor = sitrep.get("authority_decision", {}).get("actor_role") or "NDRF Authority"
+    exec_summary = (
+        "Based on the latest terrain and weather assessment, the evaluated emergency route has been classified as "
+        f"{risk_level} RISK and has been {decision_status} by the {decision_actor} for controlled emergency deployment."
+    )
 
     html = f"""<!DOCTYPE html>
 <html>
@@ -252,11 +226,10 @@ def build_sitrep_html(sitrep: dict, stats: dict, resources: list, audit_logs: li
     <div class='section'>
         <div class='section-title'>2. Route & Decision</div>
         <p><strong>Risk Level:</strong> {risk_level}</p>
-        <p><strong>Safety Classification:</strong> {safety_classification}</p>
-        <p><strong>Distance:</strong> {distance_text}</p>
         <p><strong>Authority Decision:</strong> {decision_status} ({decision_actor})</p>
-        <p><strong>Decision Time:</strong> {decision_time}</p>
-        <p><strong>Generated At:</strong> {generated_at}</p>
+        <p><strong>Decision Time:</strong> {readable_decided}</p>
+        <p><strong>Distance:</strong> {distance_text}</p>
+        <p><strong>Assessment Time:</strong> {readable_assessment}</p>
     </div>
 
     <div class='section'>
@@ -572,27 +545,13 @@ def _sitrep_pdf_response(api_key: Optional[str], authorization: Optional[str]):
     pdf.cell(0, 7, "DRISHTI-NE | AI-Based Disaster Decision Support System", ln=1, align="C")
     add_spacer(2)
 
-    # Meta + status badge
-    pdf.set_font("Arial", "", 11)
-    pdf.cell(0, 6, f"Generated At: {generated_at}", ln=1, align="R")
-    pdf.cell(0, 6, f"District / Region: {district_name}", ln=1, align="R")
-    pdf.cell(0, 6, f"Report ID: {report_id}", ln=1, align="R")
-
-    # Status badge block
-    pdf.set_fill_color(*badge_color)
-    pdf.set_text_color(255, 255, 255)
-    pdf.set_font("Arial", "B", 12)
-    pdf.cell(40, 10, f"{decision_status}", ln=1, align="C", fill=True)
-    pdf.set_text_color(0, 0, 0)
-    add_spacer(2)
-
     # Section 1: Executive Summary
     pdf.set_font("Arial", "B", 12)
     pdf.cell(0, 8, "1. Executive Summary", ln=1)
     pdf.set_font("Arial", "", 11)
     summary = (
         "Based on the latest terrain and weather assessment, the evaluated emergency route has been classified as "
-        f"{risk_level} risk and has been {decision_status} by the {actor_role} for controlled emergency deployment."
+        f"{risk_level} RISK and has been {decision_status} by the {actor_role} for controlled emergency deployment."
     )
     pdf.multi_cell(0, 7, summary)
     add_spacer()
@@ -652,8 +611,6 @@ def _sitrep_pdf_response(api_key: Optional[str], authorization: Optional[str]):
     # Fail-fast validation to prevent leaking internal fields
     # Collect the textual payload we intentionally rendered
     rendered_text = " ".join([
-        generated_at,
-        district_name,
         summary,
         distance_text,
         risk_level,
