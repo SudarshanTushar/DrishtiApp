@@ -546,6 +546,7 @@ def _sitrep_pdf_response(api_key: Optional[str], authorization: Optional[str]):
         latest_decision = MockObj(
             decision="APPROVED",
             authority="Cmdr. Singh (NDRF)",
+            actor_role="COMMANDER_ALPHA",
             timestamp=datetime.utcnow(),
             notes="Proceed with caution"
         )
