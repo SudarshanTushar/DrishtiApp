@@ -569,13 +569,14 @@ def _sitrep_pdf_response(api_key: Optional[str], authorization: Optional[str]):
     def bullet(label, text, text_color=None):
         pdf.set_font("Times", "B", 10)
         pdf.set_text_color(0, 0, 0)
-        pdf.write(5, f"\u2022 {label}: ") 
+        # Use simple dash instead of unicode bullet to avoid font encoding errors
+        pdf.write(5, f"- {label}: ") 
         
         if text_color:
             pdf.set_text_color(*text_color)
             pdf.set_font("Times", "B", 10)
         else:
-            pdf.set_font("Times", "", 10)
+             pdf.set_font("Times", "", 10)
         
         pdf.write(5, str(text))
         pdf.ln(5) # Spacing
