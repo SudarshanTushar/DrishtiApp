@@ -524,11 +524,16 @@ def _sitrep_pdf_response(api_key: Optional[str], authorization: Optional[str]):
     except Exception as exc:
         # Fallback for testing/demo availability
         print(f"Using Fallback Data due to DB error: {exc}")
-        from backend.db.models import Route, AuthorityDecision
+        
+        # Use simple object mocks to avoid SQLAlchemy re-import/metadata conflicts
+        class MockObj:
+            def __init__(self, **kwargs):
+                self.__dict__.update(kwargs)
+                
         import uuid
         from datetime import datetime
         
-        latest_route = Route(
+        latest_route = MockObj(
             id=str(uuid.uuid4()),
             start_point={"lat": 26.1445, "lon": 91.7362},
             end_point={"lat": 26.1158, "lon": 91.7086},
@@ -538,7 +543,7 @@ def _sitrep_pdf_response(api_key: Optional[str], authorization: Optional[str]):
             safety_score=78.5,
             created_at=datetime.utcnow()
         )
-        latest_decision = AuthorityDecision(
+        latest_decision = MockObj(
             decision="APPROVED",
             authority="Cmdr. Singh (NDRF)",
             timestamp=datetime.utcnow(),
