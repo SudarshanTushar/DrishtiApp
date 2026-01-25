@@ -567,7 +567,7 @@ def _sitrep_pdf_response(api_key: Optional[str], authorization: Optional[str]):
     pdf.ln()
     pdf.set_font("Arial", "", 11)
     distance = sitrep.get("route_status", {}).get("distance_km")
-    distance_text = f"{distance:.1f} km" if distance is not None else "Data in review"
+    distance_text = f"{distance:.1f} km" if distance is not None else "Under assessment"
     row = [
         distance_text,
         risk_level,
@@ -588,19 +588,7 @@ def _sitrep_pdf_response(api_key: Optional[str], authorization: Optional[str]):
     pdf.multi_cell(0, 7, "Decision Note: Cleared with readiness checks and continuous field updates.")
     add_spacer()
 
-    # Section 4: Operational Notes (optional, concise)
-    pdf.set_font("Arial", "B", 12)
-    pdf.cell(0, 8, "4. Operational Notes", ln=1)
-    pdf.set_font("Arial", "", 11)
-    notes = [
-        "System Status: ONLINE",
-        "Mesh Fallback: AVAILABLE",
-        "Data Feed: LIVE (latest pull)",
-    ]
-    for item in notes:
-        pdf.cell(5)
-        pdf.cell(0, 7, f"- {item}", ln=1)
-    add_spacer()
+    # (No additional sections beyond whitelist)
 
     # Footer
     pdf.set_y(-25)
@@ -618,7 +606,6 @@ def _sitrep_pdf_response(api_key: Optional[str], authorization: Optional[str]):
         actor_role,
         decision_status,
         decided_at,
-        " ".join(notes),
     ])
     import re
     uuid_pattern = re.compile(r"[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}")
@@ -626,6 +613,10 @@ def _sitrep_pdf_response(api_key: Optional[str], authorization: Optional[str]):
     forbidden_hits = [
         bool(uuid_pattern.search(rendered_text)),
         "Metadata" in rendered_text,
+        "Route ID" in rendered_text,
+        "Timestamp" in rendered_text,
+        "Actor" in rendered_text,
+        "n/a" in rendered_text.lower(),
         bool(iso_like_pattern.search(rendered_text)),
     ]
     if any(forbidden_hits):
