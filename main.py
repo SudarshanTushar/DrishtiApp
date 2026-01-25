@@ -183,130 +183,96 @@ def build_sitrep_html(sitrep: dict, stats: dict, resources: list, audit_logs: li
     decisions_html = (
         "<ul>" + "".join(decisions_items) + "</ul>"
         if decisions_items
-        else "<p style='color:#10b981;'>✓ No pending critical decisions</p>"
+        else ""
     )
 
-    audit_items = [
-        f"<li><strong>{fmt_ist_log(log.get('timestamp'))}</strong> - {log.get('action','N/A')}: {log.get('details','N/A')}</li>"
-        for log in audit_logs[-12:]
-    ]
-    audit_html = "<ul>" + "".join(audit_items) + "</ul>" if audit_items else "<p>No recent activity logged</p>"
-
-    now = datetime.datetime.now(ZoneInfo("Asia/Kolkata"))
-    
-    # Extract from CLEAN PAYLOAD
-    exec_summary = sitrep.get("executive_summary", "Assessment pending.")
-    
+    # Variables for Template
+    now = datetime.datetime.now(timezone.utc)
+    dtg = now.strftime("%d%H%MZ %b %y").upper()
     overview = sitrep.get("route_overview", {})
-    distance_text = overview.get("distance", "N/A")
     risk_level = overview.get("risk_level", "MODERATE")
-    
-    auth_data = sitrep.get("authority_decision", {})
-    decision_status = auth_data.get("decision", "PENDING")
-    decision_actor = auth_data.get("authority", "NDRF")
-    readable_decided = auth_data.get("decision_time", now.strftime("%d %b %Y, %I:%M %p IST"))
+    route_id = sitrep.get("meta", {}).get("id", "N/A")
 
     html = f"""<!DOCTYPE html>
 <html>
 <head>
-    <meta charset='UTF-8'>
-    <title>SITREP - {now.strftime('%Y-%m-%d')}</title>
+    <meta charset="UTF-8">
+    <title>SITREP - {dtg}</title>
     <style>
-        body {{ font-family: 'Segoe UI', Tahoma, sans-serif; background: #ffffff; color: #0f172a; padding: 32px; max-width: 880px; margin: 0 auto; }}
-        .header {{ text-align: center; border-bottom: 3px solid #0f172a; padding-bottom: 18px; margin-bottom: 28px; }}
-        .title {{ font-size: 24px; font-weight: 700; letter-spacing: 0.4px; }}
-        .org {{ font-size: 15px; color: #475569; margin-top: 6px; }}
-        .section {{ margin: 24px 0; padding: 18px; background: #f8fafc; border-left: 4px solid #2563eb; }}
-        .section-title {{ font-size: 16px; font-weight: 700; color: #0f172a; margin-bottom: 12px; text-transform: uppercase; letter-spacing: 0.5px; }}
-        .meta {{ display: flex; justify-content: space-between; gap: 12px; margin-bottom: 18px; padding: 14px; background: #fff7ed; border-radius: 6px; border: 1px solid #fed7aa; }}
-        .badge {{ background: #dc2626; color: white; padding: 6px 14px; border-radius: 999px; font-size: 11px; font-weight: 700; }}
-        .stats {{ display: grid; grid-template-columns: repeat(2, minmax(0,1fr)); gap: 14px; margin: 16px 0; }}
-        .stat-box {{ padding: 14px; background: white; border: 1px solid #e2e8f0; border-radius: 6px; }}
-        .stat-label {{ font-size: 12px; color: #64748b; margin-bottom: 4px; text-transform: uppercase; letter-spacing: 0.4px; }}
-        .stat-value {{ font-size: 22px; font-weight: 700; color: #0f172a; }}
-        ul {{ list-style: none; padding: 0; margin: 0; }}
-        li {{ padding: 8px 0; border-bottom: 1px solid #e2e8f0; }}
-        table {{ font-size: 13px; }}
-        @media print {{ body {{ padding: 12px; }} .section {{ page-break-inside: avoid; }} }}
+        body {{ font-family: 'Courier New', monospace; padding: 40px; max-width: 900px; margin: 0 auto; color: #1f2937; line-height: 1.4; }}
+        .watermark {{ position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%) rotate(-45deg); font-size: 100px; color: rgba(220, 38, 38, 0.1); font-weight: bold; z-index: -1; }}
+        .header {{ border-bottom: 4px solid #000; padding-bottom: 20px; margin-bottom: 30px; display: flex; justify-content: space-between; align-items: flex-end; }}
+        .classification {{ font-weight: bold; color: #dc2626; border: 2px solid #dc2626; padding: 4px 12px; font-size: 14px; text-transform: uppercase; letter-spacing: 1px; }}
+        .meta-grid {{ display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 30px; background: #f3f4f6; padding: 15px; border: 1px solid #d1d5db; }}
+        .section-header {{ background: #111827; color: white; padding: 8px 12px; font-weight: bold; margin-top: 30px; margin-bottom: 15px; text-transform: uppercase; letter-spacing: 1px; }}
+        .stat-row {{ display: flex; justify-content: space-between; margin-bottom: 8px; border-bottom: 1px dotted #ccc; padding-bottom: 4px; }}
+        .decision-box {{ border-left: 4px solid #f59e0b; background: #fffbeb; padding: 10px; margin-bottom: 10px; }}
+        .alert-box {{ border-left: 4px solid #dc2626; background: #fef2f2; padding: 10px; color: #b91c1c; font-weight: bold; }}
+        table {{ width: 100%; border-collapse: collapse; font-size: 12px; }}
+        th, td {{ border: 1px solid #9ca3af; padding: 6px; text-align: left; }}
+        th {{ background: #e5e7eb; }}
     </style>
 </head>
 <body>
-    <div class='header'>
-        <div class='title'>SITUATION REPORT (SITREP)</div>
-        <div class='org'>National Disaster Response Force (NDRF)<br/>Northeast Command</div>
-    </div>
+    <div class="watermark">RESTRICTED</div>
 
-        <div class='meta'>
-            <div><strong>Date:</strong> {now.strftime('%d %b %Y, %I:%M %p IST')}</div>
-            <div><strong>Assessment:</strong> Evaluated Route</div>
-            <div><span class='badge'>RESTRICTED</span></div>
+    <div class="header">
+        <div>
+            <div style="font-size: 28px; font-weight: 900; letter-spacing: -1px;">SITREP</div>
+            <div style="font-size: 14px;">OPS DRISHTI-NE // SECTOR ALPHA</div>
         </div>
-
-    <div class='section'>
-        <div class='section-title'>1. Executive Summary</div>
-        <div class='stats'>
-            <div class='stat-box'><div class='stat-label'>Active Operations</div><div class='stat-value' style='color:#2563eb;'>{stats.get('active_missions',0)}</div></div>
-            <div class='stat-box'><div class='stat-label'>SOS Alerts</div><div class='stat-value' style='color:#dc2626;'>{stats.get('sos_count',0)}</div></div>
-            <div class='stat-box'><div class='stat-label'>Critical Decisions</div><div class='stat-value' style='color:#f59e0b;'>{len(pending_decisions)}</div></div>
-            <div class='stat-box'><div class='stat-label'>Resources Deployed</div><div class='stat-value' style='color:#16a34a;'>{len(resources)}</div></div>
+        <div style="text-align: right;">
+            <div class="classification">OFFICIAL USE ONLY</div>
+            <div style="margin-top: 5px; font-size: 12px;">AUTH: COMMANDER-NE</div>
         </div>
-        <p style='margin-top:12px; color:#475569; line-height:1.6;'>{exec_summary}</p>
-        <p style='margin-top:8px; color:#475569; line-height:1.6;'>System operational status: <strong style='color:#10b981;'>ACTIVE</strong>. All communication channels functioning normally. DTN mesh network coverage at 87% across Northeast region.</p>
     </div>
 
-    <div class='section'>
-        <div class='section-title'>2. Weather Conditions (Live Feed)</div>
-        <p><strong>Current Forecast:</strong> Moderate rainfall expected in Meghalaya and Assam regions. Flash flood risk elevated in low-lying areas.</p>
-        <p><strong>Landslide Risk:</strong> <strong style='color:#dc2626;'>HIGH</strong> in Arunachal Pradesh hill districts (East Kameng, West Kameng)</p>
-        <p><strong>Visibility:</strong> Fair to moderate (2-5 km)</p>
-        <p><strong>Source:</strong> IMD Real-time Data | Last Updated: {now.strftime('%H:%M hrs')}</p>
+    <div class="meta-grid">
+        <div><strong>FROM:</strong> NDRF TACTICAL NODE 1</div>
+        <div><strong>TO:</strong> CENTRAL COMMAND (DELHI)</div>
+        <div><strong>DTG:</strong> {dtg}</div>
+        <div><strong>REP NO:</strong> {uuid.uuid4().hex[:8].upper()}</div>
     </div>
 
-    <div class='section'>
-        <div class='section-title'>3. Operational Status</div>
-        <p><strong>Command Center:</strong> Fully operational with 24/7 monitoring</p>
-        <p><strong>Response Teams:</strong> 12 teams on standby, 3 teams deployed</p>
-        <p><strong>Communication:</strong> DTN mesh active, satellite backup available</p>
-        <p><strong>Medical Facilities:</strong> Field hospitals operational in Guwahati, Shillong, Imphal</p>
+    <div class="section-header">1. EXECUTIVE SUMMARY (BLUF)</div>
+    <div class="stat-row">
+        <span>OPERATIONAL POSTURE:</span>
+        <strong style="color: {'red' if risk_level == 'CRITICAL' else 'green'};">{risk_level}</strong>
+    </div>
+    <div class="stat-row">
+        <span>ACTIVE MISSIONS:</span>
+        <strong>{stats.get('active_missions', 0)}</strong>
+    </div>
+    <div class="stat-row">
+        <span>UNVERIFIED SOS SIGNALS:</span>
+        <strong>{stats.get('sos_count', 0)}</strong>
+    </div>
+    <p style="margin-top: 10px; font-size: 13px;">
+        <strong>COMMANDER'S INTENT:</strong> Immediate priority is securing the civilian evacuation corridor along Route {route_id}. 
+        Mesh network is currently the SOLE communication channel in Sector 4.
+    </p>
+
+    <div class="section-header">2. COMMS & CYBER STATUS</div>
+    <table>
+        <tr><th>CHANNEL</th><th>STATUS</th><th>LATENCY</th></tr>
+        <tr><td>4G/LTE (PUBLIC)</td><td style="color: red;">OFFLINE / SEVERED</td><td>N/A</td></tr>
+        <tr><td>SAT-LINK</td><td style="color: orange;">INTERMITTENT</td><td>800ms</td></tr>
+        <tr><td>DRISHTI MESH (UHF/WIFI)</td><td style="color: green;">OPERATIONAL</td><td>&lt; 50ms (Local)</td></tr>
+    </table>
+    <div style="margin-top: 10px; font-size: 12px; font-style: italic;">
+        * Telemetry indicates {len(resources)} active nodes acting as relays.
     </div>
 
-    <div class='section'>
-        <div class='section-title'>4. Route & Decision Details</div>
-        <p><strong>Risk Level:</strong> {risk_level}</p>
-        <p><strong>Authority Decision:</strong> {decision_status} ({decision_actor})</p>
-        <p><strong>Decision Time:</strong> {readable_decided}</p>
-        <p><strong>Distance:</strong> {distance_text}</p>
-    </div>
+    <div class="section-header">3. PENDING CRITICAL DECISIONS</div>
+    {decisions_html if decisions_items else '<div class="decision-box">NO PENDING ACTIONS. ALL ROUTES CLEARED.</div>'}
 
-    <div class='section'>
-        <div class='section-title'>5. Resource Deployment</div>
-        {resources_table}
-        <p style='margin-top:12px; color:#475569;'>Supply status: Adequate stocks of food, water, and medical supplies; emergency rations sufficient for 72 hours.</p>
-    </div>
+    <div class="section-header">4. RESOURCE DEPLOYMENT</div>
+    {resources_table}
 
-    <div class='section'>
-        <div class='section-title'>6. Pending Critical Decisions</div>
-        {decisions_html}
-    </div>
-
-    <div class='section'>
-        <div class='section-title'>7. Recent Activity Log</div>
-        {audit_html}
-    </div>
-
-    <div class='section'>
-        <div class='section-title'>8. Recommendations</div>
-        <ul>
-            <li>✓ Continue 24/7 monitoring of weather patterns</li>
-            <li>✓ Pre-position resources in high-risk zones (Silchar, Haflong)</li>
-            <li>✓ Maintain heightened alert status for next 48 hours</li>
-            <li>✓ Conduct daily situation briefings at 0800 and 2000 hrs</li>
-            <li>✓ Coordinate with State Disaster Management Authorities</li>
-        </ul>
-    </div>
-
-    <div style='text-align:center; margin-top:40px; padding-top:16px; border-top:2px solid #e2e8f0; color:#64748b; font-size:12px;'>
-        END OF REPORT - GENERATED BY ROUTEAI-NE SYSTEM
+    <div style="margin-top: 50px; border-top: 2px solid #000; padding-top: 10px; font-size: 10px; display: flex; justify-content: space-between;">
+        <div>GENERATED BY: AUTOMATED ROUTING SYSTEM (ARS) V2.5</div>
+        <div>PAGE 1 OF 1</div>
+        <div>CLASSIFICATION: RESTRICTED</div>
     </div>
 </body>
 </html>"""
