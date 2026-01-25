@@ -1,68 +1,52 @@
 import requests
 import random
+from .simulation import SimulationManager
 
 class IoTManager:
-    """
-    Manages physical sensors and fetches live weather data.
-    """
-
+    # Guwahati Coordinates (Center of Ops)
+    LAT = 26.14
+    LNG = 91.73
+    
     @staticmethod
     def get_live_readings():
-        # 1. Fetch Real Weather for Guwahati (26.14, 91.73)
-        # Using Open-Meteo (No API Key needed)
-        real_rain = 0
-        try:
-            url = "https://api.open-meteo.com/v1/forecast?latitude=26.14&longitude=91.73&current=rain&hourly=rain"
-            res = requests.get(url, timeout=2).json()
-            real_rain = res['current']['rain'] # mm
-        except:
-            real_rain = random.randint(0, 5) # Fallback
+        """
+        Fetches REAL weather data from OpenMeteo API.
+        If Simulation is ACTIVE, it overrides with 'Disaster Data'.
+        """
+        # 1. CHECK FOR SIMULATION OVERRIDE (The "Drill" Logic)
+        sim_state = SimulationManager.get_overrides()
+        if sim_state["active"]:
+            # Return FAKE disaster data
+            return [
+                {"id": "S-01", "type": "RAIN_GAUGE", "value": sim_state["simulated_sensors"]["rain_gauge"], "unit": "mm"},
+                {"id": "S-02", "type": "RIVER_LEVEL", "value": sim_state["simulated_sensors"]["water_level"], "unit": "cm"},
+                {"id": "S-03", "type": "SOIL_MOISTURE", "value": 98, "unit": "%"}
+            ]
 
-        # 2. Simulate Sensor Grid based on Real Rain
-        # If it's raining, water levels rise
-        base_water_level = 48.0 + (real_rain * 0.5) 
-        
-        sensors = [
-            {
-                "id": "SENS-01",
-                "type": "RIVER_GAUGE",
-                "location": "Brahmaputra Alpha",
-                "lat": 26.15,
-                "lng": 91.74,
-                "value": f"{base_water_level:.1f}",
-                "unit": "m",
-                "status": "CRITICAL" if base_water_level > 50 else "STABLE"
-            },
-            {
-                "id": "SENS-02",
-                "type": "RAIN_GAUGE",
-                "location": "Shillong Outpost",
-                "lat": 25.57,
-                "lng": 91.89,
-                "value": f"{real_rain}",
-                "unit": "mm",
-                "status": "WARNING" if real_rain > 10 else "NORMAL"
-            },
-            {
-                "id": "SENS-03",
-                "type": "SEISMIC",
-                "location": "Tezpur Fault Line",
-                "lat": 26.65,
-                "lng": 92.79,
-                "value": "2.1",
-                "unit": "R",
-                "status": "NORMAL"
-            }
-        ]
-        return sensors
+        # 2. FETCH REAL DATA (The "Live" Logic)
+        try:
+            url = f"https://api.open-meteo.com/v1/forecast?latitude={IoTManager.LAT}&longitude={IoTManager.LNG}&current=rain,wind_speed_10m"
+            response = requests.get(url, timeout=2)
+            data = response.json()
+            
+            real_rain = data.get("current", {}).get("rain", 0.0)
+            real_wind = data.get("current", {}).get("wind_speed_10m", 5.0)
+            
+            return [
+                {"id": "S-01", "type": "RAIN_GAUGE", "value": real_rain, "unit": "mm"},
+                {"id": "S-02", "type": "RIVER_LEVEL", "value": 45, "unit": "cm"}, # Nominal
+                {"id": "S-03", "type": "WIND_SENSOR", "value": real_wind, "unit": "km/h"}
+            ]
+        except Exception as e:
+            print(f" [IoT] Sensor Error: {e}")
+            return [{"id": "S-ERR", "type": "STATUS", "value": "OFFLINE", "unit": ""}]
 
     @staticmethod
-    def check_critical_breach(sensors):
-        for s in sensors:
-            if s['status'] == "CRITICAL":
-                return {
-                    "alert": True,
-                    "sensor_id": s['id'],
-                    "message": f"CRITICAL BREACH AT {s['location']} ({s['value']}{s['unit']})"
-                }
+    def check_critical_breach(readings):
+        """Returns True if any sensor exceeds safety thresholds."""
+        for sensor in readings:
+            if sensor["type"] == "RAIN_GAUGE" and float(sensor["value"]) > 80:
+                return "FLOOD_RISK"
+            if sensor["type"] == "RIVER_LEVEL" and float(sensor["value"]) > 150:
+                return "EMBANKMENT_BREACH"
         return None
