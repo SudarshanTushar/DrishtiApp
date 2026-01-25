@@ -117,9 +117,17 @@ def build_sitrep_payload(route, decision):
     decision_time_str = _fmt_ist(decision.created_at if decision else None)
 
     # 4. Content Integration
+    # Get live stats for BLUF
+    stats = AnalyticsEngine.get_live_stats()
+    sos_count = stats.get('sos_count', 0)
+    
+    route_state = "CLEARED" if decision_status == "APPROVED" else "BLOCKED"
+    rec = "PROCEED WITH CAUTION" if decision_status == "APPROVED" else "HOLD POSITION"
+
     executive_summary = (
-        f"Based on the latest terrain and weather assessment, the evaluated emergency route has been classified as "
-        f"{risk_level} RISK and has been {decision_status} by the {actor} for controlled emergency deployment."
+        f"BLUF: Evaluated route ({distance_str}) is {route_state} by {actor}. {risk_level} RISK. "
+        f"Drishti Mesh holding comms with {sos_count} active SOS signals. 4G Down. "
+        f"RECOMMENDATION: {rec}."
     )
 
     # 5. Return STRICT WHITELIST (No internal keys)
