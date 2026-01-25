@@ -1,5 +1,6 @@
 fastapi
 uvicorn
+gunicorn
 python-multipart
 requests
 pydantic
@@ -10,8 +11,8 @@ joblib
 geopandas
 rasterio
 psycopg[binary,pool]
-psycopg2-binary
 sqlalchemy
 alembic
 geoalchemy2
 fpdf2
+python-dotenv
