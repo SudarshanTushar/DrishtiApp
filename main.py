@@ -636,6 +636,9 @@ def _sitrep_pdf_response(api_key: Optional[str], authorization: Optional[str]):
         AuditLogger.log("SYSTEM", "SITREP_RENDER_BLOCKED", "Forbidden field detected in PDF render", "ERROR")
         return JSONResponse(status_code=500, content={"status": "error", "message": "SITREP render blocked: forbidden internal fields"})
 
+    pdf_bytes = pdf.output(dest='S').encode("latin-1")
+    return Response(content=pdf_bytes, media_type="application/pdf", headers={"Content-Disposition": f"attachment; filename=SITREP_{file_slug_time}.pdf"})
+
 
 @app.post("/admin/sitrep/pdf")
 def generate_sitrep_pdf(api_key: Optional[str] = None, authorization: Optional[str] = Header(None)):
