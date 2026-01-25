@@ -549,7 +549,7 @@ def _sitrep_pdf_response(api_key: Optional[str], authorization: Optional[str]):
     ]
     for item in bullets:
         pdf.cell(5)
-        pdf.cell(0, 7, f"• {item}", ln=1)
+        pdf.cell(0, 7, f"- {item}", ln=1)
     add_spacer()
 
     # Section 3: Route Overview (table)
@@ -599,7 +599,7 @@ def _sitrep_pdf_response(api_key: Optional[str], authorization: Optional[str]):
     ]
     for item in ops:
         pdf.cell(5)
-        pdf.cell(0, 7, f"• {item}", ln=1)
+        pdf.cell(0, 7, f"- {item}", ln=1)
     add_spacer()
 
     # Section 6: Important Notes
