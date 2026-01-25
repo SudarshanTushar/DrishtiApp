@@ -57,14 +57,15 @@ def upgrade():
             sa.Column("created_at", sa.DateTime(timezone=True), server_default=sa.text("now()"), nullable=False),
         )
 
-    op.create_table(
-        "audit_log",
-        sa.Column("id", sa.UUID(), primary_key=True, server_default=sa.text("gen_random_uuid()")),
-        sa.Column("actor", sa.String(length=255), nullable=False),
-        sa.Column("action", sa.String(length=255), nullable=False),
-        sa.Column("payload", pg.JSONB, nullable=True),
-        sa.Column("created_at", sa.DateTime(timezone=True), server_default=sa.text("now()"), nullable=False),
-    )
+    if "audit_log" not in existing_tables:
+        op.create_table(
+            "audit_log",
+            sa.Column("id", sa.UUID(), primary_key=True, server_default=sa.text("gen_random_uuid()")),
+            sa.Column("actor", sa.String(length=255), nullable=False),
+            sa.Column("action", sa.String(length=255), nullable=False),
+            sa.Column("payload", pg.JSONB, nullable=True),
+            sa.Column("created_at", sa.DateTime(timezone=True), server_default=sa.text("now()"), nullable=False),
+        )
 
 
 def downgrade():
