@@ -223,7 +223,11 @@ def generate_professional_pdf(route, decision):
     pdf.cell(0, 5, "For Official Government Use Only.", ln=1, align="C")
 
     # CRITICAL: Return latin-1 encoded bytes for HTTP transmission
-    return pdf.output(dest='S').encode('latin-1')
+    # This try/except block handles BOTH FPDF versions
+    try:
+        return bytes(pdf.output()) 
+    except TypeError:
+        return pdf.output(dest='S').encode('latin-1')
 
 # --- 4. ENDPOINTS ---
 
