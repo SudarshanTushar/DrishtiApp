@@ -3,7 +3,7 @@ import time
 import random
 import uuid
 import re
-import traceback # Added for debugging
+import traceback
 from datetime import datetime, timezone, timedelta
 from typing import Optional, List
 
@@ -22,6 +22,10 @@ from sqlalchemy.exc import SQLAlchemyError
 from geoalchemy2 import WKTElement
 from db.session import SessionLocal, engine, Base
 from db.models import Route, AuthorityDecision
+
+# --- CONFIGURATION ---
+# SET THIS TO FALSE LATER TO USE REAL DATABASE
+DEMO_MODE = True 
 
 # MODULES (Mocked if missing to prevent crashes)
 try:
@@ -81,6 +85,7 @@ PENDING_DECISIONS = []
 
 # --- 1. ROBUST DB SETUP ---
 def ensure_db_ready():
+    if DEMO_MODE: return # Skip DB setup in demo mode
     try:
         with engine.begin() as conn:
             conn.execute(text("CREATE EXTENSION IF NOT EXISTS postgis"))
@@ -90,6 +95,7 @@ def ensure_db_ready():
 
 # --- 2. FAIL-SAFE DATA FETCHING ---
 def get_latest_route_and_decision(session):
+    if DEMO_MODE: return None, None # Force defaults
     try:
         latest_route = session.query(Route).order_by(Route.created_at.desc()).first()
         latest_decision = None
@@ -104,47 +110,33 @@ def get_latest_route_and_decision(session):
     except Exception:
         return None, None
 
-# --- 3. HELPER: TEXT SANITIZER (Prevents Unicode Crashes) ---
+# --- 3. HELPER: TEXT SANITIZER ---
 def clean_text(text):
-    """Ensure text is safe for Latin-1 encoding (Standard FPDF limitation)."""
-    if not isinstance(text, str):
-        return str(text)
-    # Replace common offenders
-    replacements = {
-        "\u2013": "-",  # En dash
-        "\u2014": "--", # Em dash
-        "\u2018": "'",  # Left single quote
-        "\u2019": "'",  # Right single quote
-        "\u201c": '"',  # Left double quote
-        "\u201d": '"',  # Right double quote
-        "₹": "Rs. ",    # Rupee symbol -> Rs.
-    }
-    for char, replacement in replacements.items():
-        text = text.replace(char, replacement)
-    
-    # Final strip of anything else non-latin-1
+    """Ensure text is safe for Latin-1 encoding."""
+    if not isinstance(text, str): return str(text)
+    replacements = {"\u2013": "-", "\u2014": "--", "\u2018": "'", "\u2019": "'", "\u201c": '"', "\u201d": '"', "₹": "Rs. "}
+    for char, replacement in replacements.items(): text = text.replace(char, replacement)
     return text.encode('latin-1', 'replace').decode('latin-1')
 
 # --- 4. THE "GOVERNMENT FORM" PDF ENGINE ---
 def generate_professional_pdf(route, decision):
     """
     Generates the Clean 'Government Boxed' Layout.
-    GUARANTEES NO 'n/a' VALUES.
-    Handles both FPDF 1.7 (Legacy) and FPDF2 (Modern).
+    GUARANTEES NO 'n/a' VALUES by forcing defaults.
     """
+    print(">>> RENDERING PDF (GOVERNMENT LAYOUT)...") # Debug Log
+
     # === A. DATA SANITIZATION ===
-    # Force Pilot Data if DB is missing
+    # Use DB data if available, otherwise FORCE Clean Pilot Data
     route_id = str(route.id) if (route and route.id) else "ROUTE-ALPHA-01"
-    if len(route_id) > 10 and "-" in route_id:
-        route_id = f"R-{route_id.split('-')[0].upper()}"
-        
+    if len(route_id) > 10 and "-" in route_id: route_id = f"R-{route_id.split('-')[0].upper()}"
+    
     distance = f"{route.distance_km:.1f} km" if (route and route.distance_km) else "148.2 km"
     risk = (route.risk_level if (route and route.risk_level) else "MODERATE").upper()
     
     auth_role = (decision.actor_role if (decision and decision.actor_role) else "NDRF COMMANDER").upper()
     status = (decision.decision if (decision and decision.decision) else "APPROVED").upper()
     
-    # Simple Timezone Logic (No ZoneInfo dependency)
     ist_offset = timezone(timedelta(hours=5, minutes=30))
     now = datetime.now(ist_offset)
     dtg = now.strftime("%d%H%MZ %b %y").upper() 
@@ -161,18 +153,15 @@ def generate_professional_pdf(route, decision):
     pdf.set_auto_page_break(auto=True, margin=15)
     pdf.add_page()
     
-    # 1. HEADER BOX (The "Government" Look)
+    # 1. HEADER BOX
     pdf.set_line_width(0.5)
-    pdf.rect(10, 10, 190, 40) # Outer Border
-    
+    pdf.rect(10, 10, 190, 40)
     pdf.set_xy(10, 15)
     pdf.set_font("Arial", "B", 16)
     pdf.cell(190, 8, clean_text("SITUATION REPORT (SITREP)"), ln=1, align="C")
-    
     pdf.set_font("Arial", "", 10)
     pdf.cell(190, 6, clean_text("DRISHTI-NE | AI-Based Disaster Decision Support System"), ln=1, align="C")
-    
-    pdf.line(10, 32, 200, 32) # Divider
+    pdf.line(10, 32, 200, 32)
     
     pdf.set_xy(12, 35)
     pdf.set_font("Courier", "B", 10) 
@@ -182,16 +171,13 @@ def generate_professional_pdf(route, decision):
     pdf.set_xy(12, 41)
     pdf.cell(90, 5, clean_text(f"DTG: {dtg}"), ln=0)
     pdf.cell(90, 5, clean_text(f"REP NO: {uuid.uuid4().hex[:8].upper()}"), ln=1, align="R")
-
     pdf.ln(15)
 
     # 2. EXECUTIVE SUMMARY
     pdf.set_font("Arial", "B", 12)
-    # Light Gray Background for BLUF
     pdf.set_fill_color(240, 240, 240)
     pdf.cell(0, 8, clean_text("1. EXECUTIVE SUMMARY"), ln=1, fill=True)
     pdf.ln(2)
-    
     pdf.set_font("Times", "", 11)
     pdf.multi_cell(0, 6, bluf_text)
     pdf.ln(5)
@@ -201,24 +187,15 @@ def generate_professional_pdf(route, decision):
     pdf.cell(0, 8, clean_text("2. OPERATIONAL ROUTE DETAILS"), ln=1, fill=True)
     pdf.ln(2)
 
-    col_w = 60
-    val_w = 130
-    row_h = 8
-    
+    col_w, row_h = 60, 8
     def draw_row(label, value, bold_val=False):
         pdf.set_font("Arial", "B", 10)
         pdf.cell(col_w, row_h, clean_text(label), border=1)
         pdf.set_font("Arial", "B" if bold_val else "", 10)
-        
-        # Risk Coloring (Text Only)
-        if "HIGH" in value or "CRITICAL" in value:
-            pdf.set_text_color(200, 0, 0)
-        elif "APPROVED" in value or "LOW" in value:
-            pdf.set_text_color(0, 100, 0)
-        else:
-            pdf.set_text_color(0, 0, 0)
-            
-        pdf.cell(0, row_h, clean_text(str(value)), border=1, ln=1) # 0 width = extend to right margin
+        if "HIGH" in str(value) or "CRITICAL" in str(value): pdf.set_text_color(200, 0, 0)
+        elif "APPROVED" in str(value) or "LOW" in str(value): pdf.set_text_color(0, 100, 0)
+        else: pdf.set_text_color(0, 0, 0)
+        pdf.cell(0, row_h, clean_text(str(value)), border=1, ln=1)
         pdf.set_text_color(0, 0, 0)
 
     draw_row("Route ID", route_id)
@@ -231,29 +208,23 @@ def generate_professional_pdf(route, decision):
     pdf.set_font("Arial", "B", 12)
     pdf.cell(0, 8, clean_text("3. AUTHORIZATION METADATA"), ln=1, fill=True)
     pdf.ln(2)
-    
     draw_row("Authorized By", auth_role)
     draw_row("Decision Time", date_pretty)
     draw_row("Report Generated", date_pretty)
     
-    # 5. FOOTER (Rubber Stamp)
+    # 5. FOOTER
     pdf.set_y(-40)
     pdf.set_font("Arial", "B", 14)
     pdf.set_text_color(200, 0, 0) 
     pdf.cell(0, 10, clean_text("CLASSIFICATION: RESTRICTED"), ln=1, align="C")
-    
     pdf.set_font("Arial", "I", 8)
     pdf.set_text_color(100, 100, 100)
     pdf.cell(0, 5, clean_text("This document contains sensitive operational data generated by the Drishti-NE System."), ln=1, align="C")
     pdf.cell(0, 5, clean_text("For Official Government Use Only."), ln=1, align="C")
 
-    # CRITICAL: Return latin-1 encoded bytes for HTTP transmission
-    # This try/except block handles BOTH FPDF versions
     try:
-        # FPDF2
         return bytes(pdf.output()) 
     except TypeError:
-        # Legacy FPDF 1.7
         return pdf.output(dest='S').encode('latin-1')
 
 # --- 5. ENDPOINTS ---
@@ -265,10 +236,6 @@ def admin_login(password: str = Form(...)):
         return {"status": "success", "token": "NDRF-COMMAND-2026-SECURE"}
     return {"status": "error", "message": "Invalid Credentials"}, 401
 
-# -----------------------------------------------------------------------------
-# 🚀 UNIVERSAL SITREP ROUTER
-# -----------------------------------------------------------------------------
-
 @app.get("/admin/sitrep/generate")
 @app.post("/admin/sitrep/generate")
 def generate_sitrep_universal(
@@ -276,66 +243,50 @@ def generate_sitrep_universal(
     api_key: Optional[str] = None, 
     authorization: Optional[str] = Header(None)
 ):
-    """
-    Polymorphic Endpoint: Returns either a Classified PDF or JSON Data.
-    """
+    # Auth
     token = None
     if authorization and authorization.startswith("Bearer "):
         token = authorization.replace("Bearer ", "")
     elif api_key:
         token = api_key
-    
     if token != "NDRF-COMMAND-2026-SECURE":
         return JSONResponse(status_code=403, content={"status": "error", "message": "Unauthorized"})
 
-    # Fetch Data (Fail-Safe)
+    # Fetch Data
     route, decision = None, None
     try:
         ensure_db_ready()
-        with SessionLocal() as session:
-            route, decision = get_latest_route_and_decision(session)
+        if not DEMO_MODE:
+            with SessionLocal() as session:
+                route, decision = get_latest_route_and_decision(session)
     except Exception:
         pass
 
-    # Safe Defaults for Summary
-    route_id = str(route.id) if (route and route.id) else "ROUTE-ALPHA-01"
-    if len(route_id) > 10 and "-" in route_id: route_id = f"R-{route_id.split('-')[0].upper()}"
-    distance = f"{route.distance_km:.1f} km" if (route and route.distance_km) else "148.2 km"
-    risk = (route.risk_level if (route and route.risk_level) else "MODERATE").upper()
-    status = (decision.decision if (decision and decision.decision) else "APPROVED").upper()
-    
-    # IST Time
-    ist_offset = timezone(timedelta(hours=5, minutes=30))
-    timestamp = datetime.now(ist_offset).strftime("%d %b %Y, %H:%M IST")
-
-    executive_summary = (
-        f"BLUF: Evaluated route ({route_id}) spanning {distance} has been assessed as {risk} RISK. "
-        f"Status: {status}."
-    )
-
-    # BRANCH: JSON
+    # JSON Response
     if format.lower() == "json":
+        # Force defaults for JSON preview too
+        r_id = str(route.id) if (route and route.id) else "ROUTE-ALPHA-01"
+        dist = f"{route.distance_km} km" if (route and route.distance_km) else "148.2 km"
         return {
             "status": "success",
-            "timestamp": timestamp,
-            "executive_summary": executive_summary,
-            "data": { "route_id": route_id, "risk": risk, "decision": status }
+            "timestamp": datetime.now().strftime("%d %b %Y, %H:%M IST"),
+            "executive_summary": f"BLUF: Evaluated route ({r_id}) spanning {dist} has been assessed.",
+            "data": { "route_id": r_id, "risk": "MODERATE", "decision": "APPROVED" }
         }
 
-    # BRANCH: PDF (Binary Output)
+    # PDF Response
     try:
         pdf_bytes = generate_professional_pdf(route, decision)
-        filename = f"SITREP_{datetime.now(ist_offset).strftime('%Y%m%d_%H%M')}.pdf"
+        filename = f"SITREP_{datetime.now().strftime('%Y%m%d_%H%M')}.pdf"
         return Response(
             content=pdf_bytes, 
             media_type="application/pdf", 
             headers={"Content-Disposition": f"attachment; filename={filename}"}
         )
     except Exception as e:
-        # LOG THE ERROR TO CONSOLE so you can see it
         print("❌ PDF GENERATION FAILED:")
-        traceback.print_exc()
-        return JSONResponse(status_code=500, content={"status": "error", "message": f"PDF Generation Failed: {str(e)}"})
+        traceback.print_exc() # Print full error to console
+        return JSONResponse(status_code=500, content={"status": "error", "message": f"PDF Error: {str(e)}"})
 
 # --- EXISTING FEATURES ---
 
