@@ -228,9 +228,9 @@ def build_sitrep_payload(route, decision):
 def _sitrep_pdf_response(api_key: Optional[str], authorization: Optional[str]):
     """
     GENERATES 'OFFICIAL CLASSIFIED' STYLE PDF.
-    Features: Watermark, Status Colors, Official Header, Digital Signature.
+    Fixed: Removed invalid 'font_style' argument causing 500 Error.
     """
-    # 1. Auth & Data Fetching (Standard)
+    # 1. Auth & Data Fetching
     token = None
     if authorization and authorization.startswith("Bearer "):
         token = authorization.replace("Bearer ", "")
@@ -269,28 +269,27 @@ def _sitrep_pdf_response(api_key: Optional[str], authorization: Optional[str]):
     pdf.set_auto_page_break(auto=True, margin=15)
     pdf.add_page()
 
-    # --- WATERMARK (Subtle Background) ---
+    # --- WATERMARK ---
     pdf.set_font("Arial", "B", 50)
-    pdf.set_text_color(240, 240, 240) # Very light gray
+    pdf.set_text_color(240, 240, 240)
     with pdf.rotation(45, 105, 148):
         pdf.text(30, 190, "OFFICIAL USE ONLY")
-    pdf.set_text_color(0, 0, 0) # Reset
+    pdf.set_text_color(0, 0, 0)
 
-    # --- CLASSIFICATION HEADER (Red Bar) ---
-    pdf.set_fill_color(200, 0, 0) # Dark Red
+    # --- CLASSIFICATION HEADER ---
+    pdf.set_fill_color(200, 0, 0)
     pdf.rect(0, 0, 210, 8, 'F')
     pdf.set_font("Arial", "B", 10)
     pdf.set_text_color(255, 255, 255)
     pdf.set_xy(0, 1)
     pdf.cell(210, 6, "RESTRICTED // LAW ENFORCEMENT SENSITIVE", align='C')
-    pdf.set_text_color(0, 0, 0) # Reset
+    pdf.set_text_color(0, 0, 0)
 
     # --- OFFICIAL HEADER BLOCK ---
     pdf.ln(10)
     pdf.set_line_width(0.5)
-    pdf.rect(10, 18, 190, 35) # Box
+    pdf.rect(10, 18, 190, 35)
     
-    # Title
     pdf.set_xy(10, 22)
     pdf.set_font("Times", "B", 18)
     pdf.cell(190, 8, "SITUATION REPORT (SITREP)", ln=1, align="C")
@@ -298,10 +297,8 @@ def _sitrep_pdf_response(api_key: Optional[str], authorization: Optional[str]):
     pdf.set_font("Arial", "", 9)
     pdf.cell(190, 5, "DRISHTI-NE | AI-Based Disaster Decision Support System", ln=1, align="C")
     
-    # Divider Line
     pdf.line(10, 36, 200, 36)
     
-    # Metadata Grid
     pdf.set_xy(12, 39)
     pdf.set_font("Courier", "B", 10) 
     pdf.cell(95, 5, f"FROM: {unit_name}", ln=0)
@@ -313,16 +310,15 @@ def _sitrep_pdf_response(api_key: Optional[str], authorization: Optional[str]):
 
     pdf.ln(15)
 
-    # --- 1. EXECUTIVE SUMMARY (BLUF) ---
+    # --- 1. EXECUTIVE SUMMARY ---
     pdf.set_font("Arial", "B", 11)
-    pdf.set_fill_color(230, 230, 235) # Cool Gray
+    pdf.set_fill_color(230, 230, 235)
     pdf.cell(0, 8, "  1. EXECUTIVE SUMMARY (BLUF)", ln=1, fill=True)
     pdf.ln(3)
     
-    # Dynamic Status Color
-    status_fill = (220, 255, 220) # Light Green
-    if "RED" in bluf_status: status_fill = (255, 220, 220) # Light Red
-    elif "AMBER" in bluf_status: status_fill = (255, 245, 220) # Light Amber
+    status_fill = (220, 255, 220)
+    if "RED" in bluf_status: status_fill = (255, 220, 220)
+    elif "AMBER" in bluf_status: status_fill = (255, 245, 220)
     
     pdf.set_fill_color(*status_fill)
     pdf.set_font("Arial", "B", 10)
@@ -338,51 +334,54 @@ def _sitrep_pdf_response(api_key: Optional[str], authorization: Optional[str]):
     pdf.cell(0, 6, f"Casualty Report: {sitrep.get('casualty_count', 'N/A')}", ln=1)
     pdf.ln(4)
 
-    # --- 2. INTELLIGENCE & SENSORS ---
+    # --- 2. INTELLIGENCE ---
     pdf.set_font("Arial", "B", 11)
     pdf.set_fill_color(230, 230, 235)
     pdf.cell(0, 8, "  2. INTELLIGENCE & SENSORS", ln=1, fill=True)
     pdf.ln(2)
     
     pdf.set_font("Arial", "", 10)
-    # Draw simple lines for cleaner look
     pdf.cell(5, 6, "-", ln=0)
     pdf.cell(0, 6, f"Meteorological: {sitrep.get('weather_rain', 'N/A')}", ln=1)
     pdf.cell(5, 6, "-", ln=0)
     pdf.cell(0, 6, f"Visual Intel: {sitrep.get('drone_intel', 'N/A')}", ln=1)
     pdf.ln(4)
 
-    # --- 3. OPERATIONS & DECISIONS ---
+    # --- 3. OPERATIONS (FIXED FONT SWITCHING) ---
     pdf.set_font("Arial", "B", 11)
     pdf.set_fill_color(230, 230, 235)
     pdf.cell(0, 8, "  3. OPERATIONS & DECISIONS", ln=1, fill=True)
     pdf.ln(2)
     
+    # COMPLETED ROW
+    pdf.set_font("Arial", "B", 10)
+    pdf.cell(35, 6, "COMPLETED:")
     pdf.set_font("Arial", "", 10)
-    pdf.cell(35, 6, "COMPLETED:", font_style="B")
     pdf.cell(0, 6, sitrep.get('completed_action', 'N/A'), ln=1)
     
-    pdf.cell(35, 6, "PENDING:", font_style="B")
-    # Highlight pending in Amber text if exists
+    # PENDING ROW
+    pdf.set_font("Arial", "B", 10)
+    pdf.cell(35, 6, "PENDING:")
+    
     if "None" not in sitrep.get('pending_decision', 'None'):
         pdf.set_text_color(200, 100, 0)
+    
+    pdf.set_font("Arial", "", 10)
     pdf.cell(0, 6, sitrep.get('pending_decision', 'N/A'), ln=1)
     pdf.set_text_color(0, 0, 0)
     pdf.ln(4)
 
-    # --- 4. LOGISTICS & RESOURCES ---
+    # --- 4. LOGISTICS ---
     pdf.set_font("Arial", "B", 11)
     pdf.set_fill_color(230, 230, 235)
     pdf.cell(0, 8, "  4. LOGISTICS & RESOURCES", ln=1, fill=True)
     pdf.ln(2)
     
-    # Table Header
     pdf.set_font("Arial", "B", 9)
     pdf.set_fill_color(245, 245, 245)
     pdf.cell(95, 6, "DEPLOYED ASSETS", border=1, fill=True, align='C')
     pdf.cell(95, 6, "CRITICAL SUPPLIES", border=1, fill=True, align='C', ln=1)
     
-    # Table Content
     pdf.set_font("Arial", "", 10)
     pdf.cell(95, 8, f"NDRF Teams: {sitrep.get('teams_deployed', '0')}", border=1, align='C')
     pdf.cell(95, 8, f"Fuel Status: {sitrep.get('supplies_fuel', 'N/A')}", border=1, align='C', ln=1)
@@ -399,7 +398,7 @@ def _sitrep_pdf_response(api_key: Optional[str], authorization: Optional[str]):
     pdf.cell(0, 6, f"Mesh Integrity:  {sitrep.get('mesh_status', 'N/A')}", ln=1)
     pdf.cell(0, 6, f"Message Vol:     {sitrep.get('packets_relayed', 'N/A')}", ln=1)
     
-    # --- FOOTER (Digital Signature Style) ---
+    # --- FOOTER ---
     pdf.set_y(-35)
     pdf.set_line_width(0.2)
     pdf.line(10, pdf.get_y(), 200, pdf.get_y())
@@ -409,7 +408,6 @@ def _sitrep_pdf_response(api_key: Optional[str], authorization: Optional[str]):
     pdf.cell(0, 4, f"GENERATED BY SYSTEM: DRISHTI-CORE-V1", ln=1, align="R")
     pdf.cell(0, 4, f"DIGITAL SIGNATURE: {uuid.uuid4()}", ln=1, align="R")
     
-    # Classification Footer
     pdf.set_y(-15)
     pdf.set_fill_color(200, 0, 0)
     pdf.rect(0, pdf.get_y(), 210, 15, 'F')
@@ -420,12 +418,14 @@ def _sitrep_pdf_response(api_key: Optional[str], authorization: Optional[str]):
 
     # 4. Output
     try:
+        # FPDF2
         return Response(
             content=bytes(pdf.output()), 
             media_type="application/pdf", 
             headers={"Content-Disposition": f"attachment; filename=SITREP_{file_slug_time}.pdf"}
         )
-    except TypeError: # Legacy FPDF
+    except TypeError:
+        # Legacy FPDF 1.7
         return Response(
             content=pdf.output(dest='S').encode('latin-1'),
             media_type="application/pdf", 
