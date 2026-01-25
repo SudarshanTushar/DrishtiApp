@@ -104,11 +104,12 @@ def get_latest_route_and_decision(session):
     except Exception:
         return None, None
 
-# --- 3. THE "GOVERNMENT FORM" PDF ENGINE (VISUAL FIX) ---
+# --- 3. THE "GOVERNMENT FORM" PDF ENGINE ---
 def generate_professional_pdf(route, decision):
     """
     Generates the Clean 'Government Boxed' Layout.
     GUARANTEES NO 'n/a' VALUES.
+    Handles both FPDF 1.7 (Legacy) and FPDF2 (Modern).
     """
     # === A. DATA SANITIZATION ===
     # Force Pilot Data if DB is missing
@@ -163,6 +164,7 @@ def generate_professional_pdf(route, decision):
 
     # 2. EXECUTIVE SUMMARY
     pdf.set_font("Arial", "B", 12)
+    # Light Gray Background for BLUF
     pdf.set_fill_color(240, 240, 240)
     pdf.cell(0, 8, "1. EXECUTIVE SUMMARY", ln=1, fill=True)
     pdf.ln(2)
