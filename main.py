@@ -517,13 +517,7 @@ def _sitrep_pdf_response(api_key: Optional[str], authorization: Optional[str]):
     decided_at = _format_ist(decided_at_raw)
     safety_score_lookup = {"LOW": 92, "MODERATE": 78, "HIGH": 58}
     safety_score = safety_score_lookup.get(risk_level, 70)
-    primary_risks_map = {
-        "LOW": "Minor debris risk; visibility good",
-        "MODERATE": "Intermittent waterlogging and slope instability",
-        "HIGH": "Landslide-prone slopes and flooded stretches",
-    }
-    primary_risks = primary_risks_map.get(risk_level, "Mixed terrain and weather stressors")
-    alt_route = "Yes - Limited capacity" if risk_level in {"LOW", "MODERATE"} else "No - Monitor"
+    safety_classification = "SAFE" if decision_status == "APPROVED" else "CONDITIONAL" if decision_status == "CONDITIONAL" else "UNSAFE"
     status_colors = {
         "APPROVED": (34, 139, 34),
         "CONDITIONAL": (234, 179, 8),
@@ -595,8 +589,8 @@ def _sitrep_pdf_response(api_key: Optional[str], authorization: Optional[str]):
     pdf.set_font("Arial", "B", 12)
     pdf.cell(0, 8, "3. Route Overview", ln=1)
     pdf.set_font("Arial", "B", 11)
-    col_widths = [45, 30, 30, 55, 30]
-    headers = ["Route Distance", "Risk Level", "Safety Score", "Primary Risk Factors", "Alt Route"]
+    col_widths = [60, 40, 60]
+    headers = ["Distance", "Risk Level", "Safety Classification"]
     for header, width in zip(headers, col_widths):
         pdf.cell(width, 8, header, border=1, align="C")
     pdf.ln()
@@ -606,9 +600,7 @@ def _sitrep_pdf_response(api_key: Optional[str], authorization: Optional[str]):
     row = [
         distance_text,
         risk_level,
-        f"{safety_score}%",
-        primary_risks,
-        alt_route,
+        f"{safety_classification} ({safety_score}%)",
     ]
     for value, width in zip(row, col_widths):
         pdf.cell(width, 8, value, border=1, align="C")
