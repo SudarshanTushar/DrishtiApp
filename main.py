@@ -6,8 +6,8 @@ import os
 import requests
 import random
 import uuid
-import traceback # Added for debug
-from datetime import datetime, timezone, timedelta # Simplified time
+import traceback 
+from datetime import datetime, timezone, timedelta 
 from zoneinfo import ZoneInfo
 from sqlalchemy import text
 from sqlalchemy.exc import SQLAlchemyError
@@ -105,66 +105,61 @@ def clean_text(text):
 
 def build_sitrep_payload(route, decision):
     """
-    ADVANCED INTELLIGENCE AGGREGATOR.
-    Pulls live data from IoT, Simulation, and Resource modules to 
-    generate the 5-Section Government Format.
+    ADVANCED INTELLIGENCE AGGREGATOR (DEEP DATA VERSION).
+    Generates dense, realistic military-grade data for the PDF.
     """
-    # --- 1. TIME SYNCHRONIZATION ---
     ist_offset = timezone(timedelta(hours=5, minutes=30))
     now_utc = datetime.now(timezone.utc)
     now_ist = now_utc.astimezone(ist_offset)
-    
-    # Military DTG Format: 250830Z JAN 26
     dtg = now_utc.strftime("%d%H%MZ %b %y").upper()
     
-    # --- 2. GATHER LIVE INTELLIGENCE ---
-    
-    # A. SIMULATION STATE (Is the world ending?)
+    # 1. LIVE SENSOR FUSION
     sim_data = SimulationManager.get_overrides()
     is_drill = sim_data.get("active", False)
     sim_phase = sim_data.get("phase", 0)
     
-    # B. IOT SENSOR FUSION
     iot_readings = IoTManager.get_live_readings()
     rain_sensor = next((s for s in iot_readings if s["type"] == "RAIN_GAUGE"), {"value": 0})
     rain_val = float(rain_sensor["value"])
     
-    # C. RESOURCE STATUS
-    resources = ResourceSentinel.get_all()
-    # Mock team count if empty for better demo visuals
-    team_count = len(resources) if len(resources) > 0 else 5
+    # 2. GENERATE DEEP METRICS (The "Details")
+    sectors = ["Kaziranga-West", "Majuli-Riverline", "Guwahati-Urban", "Silchar-Lowlands"]
+    target_sector = sectors[0] if is_drill else "Guwahati-HQ"
     
-    # D. CROWD INTEL (SOS Signals)
+    # Hydrology (Brahmaputra Simulation)
+    brahmaputra_lvl = 48.5 + (rain_val * 0.05) # Base level
+    river_status = "STABLE" if brahmaputra_lvl < 50 else "DANGER LEVEL (+) 0.4m"
+    
+    # Risk Assessment
     risk_level = (route.risk_level or "MODERATE").upper()
     
-    # --- 3. CONSTRUCT THE 5-SECTION REPORT ---
-    
-    # SECTION 1: EXECUTIVE SUMMARY (BLUF)
-    # Dynamic Threat Assessment
+    # 3. EXECUTIVE SUMMARY (BLUF)
     if is_drill:
         op_status = "RED - CRITICAL (DRILL ACTIVE)"
-        threat = f"Simulated Phase {sim_phase}: Flash Flood wavefront advancing in Sector 4. Terrain instability confirmed."
-        casualties = f"{random.randint(12, 40)} Unverified / {random.randint(2, 5)} Confirmed"
+        threat = f"Simulated Phase {sim_phase}: Flash Flood wavefront in {target_sector}. Embankment breach at loc 26.14N, 91.73E."
+        casualties = f"Unverified: {random.randint(15, 50)} | Confirmed: {random.randint(2, 8)} | Missing: {random.randint(5, 12)}"
+        evac_count = random.randint(200, 1000)
     elif risk_level == "HIGH":
         op_status = "AMBER - ELEVATED"
         threat = "Heavy rainfall triggering localized slope instability. Pre-emptive evacuation recommended."
         casualties = "0 Confirmed / Monitoring incoming SOS."
+        evac_count = 50
     else:
         op_status = "GREEN - NORMAL"
-        threat = "Routine environmental monitoring. No active threats detected."
-        casualties = "0 Reports."
+        threat = "Routine surveillance. River levels seasonal. No immediate hydrological threats."
+        casualties = "NIL Reports."
+        evac_count = 0
 
-    # SECTION 2: INTELLIGENCE & SENSORS
-    # Dynamic Weather & Visuals
-    weather_desc = f"Rainfall: {rain_val}mm | Visibility: {'POOR (<200m)' if rain_val > 80 else 'GOOD (>5km)'}"
+    # 4. INTELLIGENCE & SENSORS
+    weather_desc = f"Rainfall: {rain_val}mm | Wind: {random.randint(10, 45)} km/h NE | Press: {random.randint(990, 1010)} hPa"
+    geo_intel = f"Soil Saturation: {90 if is_drill else 45}% | Landslide Prob: {'HIGH (82%)' if is_drill else 'LOW (12%)'}"
     
-    # Drone status logic
-    drone_status = "UAV-402 Grounded (Weather)" if rain_val > 100 else "UAV-402 Patrol: No structural damage detected."
-    if is_drill and sim_phase > 1:
-        drone_status = "UAV-402 confirms embankment breach at Latitude 27.3562, Longitude 93.7448."
+    drone_status = "UAV Flight #402: All Green."
+    if is_drill:
+        drone_status = "UAV #402 confirms 150m breach in Dyke No. 4. Video feed secured."
 
-    # SECTION 3: OPERATIONS
-    # Dynamic Decision Tracking
+    # 5. OPS & LOGISTICS
+    # Operations
     decision_txt = (decision.decision if decision else "PENDING").upper()
     actor_txt = decision.actor_role if decision else "COMMAND"
     
@@ -176,47 +171,54 @@ def build_sitrep_payload(route, decision):
 
     pending_ops = "None."
     if len(PENDING_DECISIONS) > 0:
-        pending_ops = f"AUTHORIZATION REQUIRED: Route diversion for Convoy A due to AI Risk Score {random.randint(85, 99)}/100."
+        pending_ops = f"AUTH REQUIRED: Route diversion for Convoy A due to AI Risk Score {random.randint(85, 99)}/100."
 
-    # SECTION 4: LOGISTICS
-    # Dynamic Resource Tracking
-    # Fuel calculation logic: heavy rain = more fuel usage
-    fuel_level = 90 - (rain_val * 0.4) 
-    if fuel_level < 20: fuel_level = 20 # Floor
+    # Logistics (Heavy Data)
+    resources = ResourceSentinel.get_all()
+    team_count = len(resources) if len(resources) > 0 else 5
+    fuel_level = max(20, int(90 - (rain_val * 0.4)))
     
-    fuel_status_str = f"{int(fuel_level)}% ({'CRITICAL' if fuel_level < 40 else 'STABLE'})"
-    
-    # SECTION 5: COMMUNICATIONS
-    # Dynamic Mesh Health
-    internet = "UP (Fibre)"
-    if is_drill or rain_val > 120:
-        internet = "DOWN (0%)"
-    
+    supply_data = {
+        "food": 2000 if is_drill else 5000,
+        "water": 1500 if is_drill else 8000,
+        "boats": 12 if is_drill else 25,
+        "med_kits": "Critical" if is_drill else "Stocked"
+    }
+
+    # Communications
+    internet = "DOWN (Sat-Link Active)" if is_drill or rain_val > 120 else "UP (Fibre/4G)"
     mesh_health = "STABLE (94 Nodes Active)"
     packet_vol = random.randint(1200, 5000)
 
-    # --- 4. RETURN STRUCTURED JSON ---
-    # This matches the "govFormat" enrichment in your Frontend
+    # 6. RETURN STRUCTURE
     return {
         "dtg": dtg,
-        "unit": "NE-COMMAND-NODE-ALPHA",
-        "executive_summary": f"{threat} Status: {op_status}", # Fallback for old viewers
+        "unit": "1st BN NDRF (Guwahati Node)",
+        "location": target_sector,
         
-        # The "Pro" Fields for the new Dashboard & PDF
+        # Section 1: BLUF
         "bluf_status": op_status,
         "bluf_threat": threat,
         "casualty_count": casualties,
+        "evac_stat": f"Civilians Evacuated: {evac_count}",
         
+        # Section 2: Intel
         "weather_rain": weather_desc,
-        "risk_prob": "72%" if is_drill else "12%",
+        "river_level": f"Brahmaputra: {brahmaputra_lvl:.2f}m ({river_status})",
+        "geo_intel": geo_intel,
         "drone_intel": drone_status,
+        "risk_prob": "72%" if is_drill else "12%",
         
+        # Section 3: Ops
         "completed_action": completed_ops,
         "pending_decision": pending_ops,
         
-        "teams_deployed": team_count,
-        "supplies_fuel": fuel_status_str,
+        # Section 4: Logistics
+        "teams_deployed": f"{team_count} Teams (approx {team_count * 20} personnel)",
+        "supplies_fuel": f"Diesel: {fuel_level}% | Boats: {supply_data['boats']} Active",
+        "ration_stat": f"Rations: {supply_data['food']} pkts | Water: {supply_data['water']} L | Meds: {supply_data['med_kits']}",
         
+        # Section 5: Comms
         "internet_status": internet,
         "mesh_status": mesh_health,
         "packets_relayed": f"{packet_vol} packets relayed via Store-Carry-Forward",
@@ -229,8 +231,7 @@ def build_sitrep_payload(route, decision):
     
 def _sitrep_pdf_response(api_key: Optional[str], authorization: Optional[str]):
     """
-    GENERATES 'INDIAN GOVERNMENT STANDARD' SITREP.
-    Style: Serif fonts, Horizontal Rules, Strict Formatting.
+    GENERATES 'INDIAN GOVERNMENT STANDARD' SITREP (HIGH DETAIL).
     """
     # 1. Auth & Data Fetching
     token = None
@@ -252,42 +253,31 @@ def _sitrep_pdf_response(api_key: Optional[str], authorization: Optional[str]):
     except Exception:
         return JSONResponse(status_code=503, content={"status": "error", "message": "Data Unavailable"})
 
-    # 2. Extract & Format Data for Govt Style
-    unit_name = sitrep.get("unit", "NE-COMMAND-NODE-ALPHA")
-    dtg_val = sitrep.get("dtg", datetime.now(timezone.utc).strftime("%d%H%MZ %b %y").upper())
-    
-    # Sim/Live Logic mappings
-    bluf_status = sitrep.get("bluf_status", "GREEN - NORMAL")
-    is_critical = "RED" in bluf_status or "CRITICAL" in bluf_status
-    
-    # 3. DRAW THE GOVT PDF
+    # 2. PDF Setup
     pdf = FPDF()
     pdf.set_auto_page_break(auto=True, margin=20)
     pdf.add_page()
     
-    # --- HEADER SECTION ---
-    # Top Banner
+    # --- HEADER ---
     pdf.set_font("Times", "B", 12)
     pdf.cell(0, 5, "SECURITY CLASSIFICATION:", ln=1, align='C')
     pdf.set_font("Times", "B", 14)
     pdf.cell(0, 7, "RESTRICTED // LAW ENFORCEMENT SENSITIVE", ln=1, align='C')
     pdf.ln(5)
-    
-    # Horizontal Rule
     pdf.set_line_width(0.5)
     pdf.line(10, pdf.get_y(), 200, pdf.get_y())
     pdf.ln(5)
     
-    # Metadata Block (Left & Right aligned)
+    # Metadata Block
     y_start = pdf.get_y()
-    
-    # Left Block
+    # Left
     pdf.set_font("Times", "", 10)
-    pdf.cell(100, 5, f"Issuing Unit: {unit_name}", ln=1)
-    pdf.cell(100, 5, f"DTG: {dtg_val}", ln=1)
+    pdf.cell(100, 5, f"Issuing Unit: {sitrep.get('unit')}", ln=1)
+    pdf.cell(100, 5, f"DTG: {sitrep.get('dtg')}", ln=1)
+    pdf.cell(100, 5, f"Location: {sitrep.get('location')}", ln=1)
     pdf.cell(100, 5, "Subject: SITREP 001 - OPS DRISHTI-NE", ln=1)
     
-    # Right Block (Manually positioned)
+    # Right (Manually positioned)
     pdf.set_xy(110, y_start)
     ist_time = datetime.now(timezone(timedelta(hours=5, minutes=30))).strftime("%d Jan %Y, %H:%M IST")
     pdf.cell(90, 5, f"Generated At: {ist_time}", ln=1, align='R')
@@ -298,195 +288,109 @@ def _sitrep_pdf_response(api_key: Optional[str], authorization: Optional[str]):
     pdf.line(10, pdf.get_y(), 200, pdf.get_y())
     pdf.ln(8)
 
-    # --- SECTION 1: EXECUTIVE SUMMARY ---
+    # --- 1. EXECUTIVE SUMMARY ---
     pdf.set_font("Times", "B", 12)
     pdf.cell(0, 6, "1. EXECUTIVE SUMMARY (BLUF)", ln=1)
     pdf.ln(2)
     
-    # Operational Status
     pdf.set_font("Times", "", 11)
     pdf.write(5, "Operational Status:  ")
     pdf.set_font("Times", "B", 11)
-    if is_critical:
-        pdf.set_text_color(200, 0, 0) # Dark Red for CRITICAL only
-    pdf.write(5, bluf_status)
-    pdf.set_text_color(0, 0, 0) # Reset
+    if "RED" in sitrep['bluf_status']: pdf.set_text_color(200, 0, 0)
+    pdf.write(5, sitrep['bluf_status'])
+    pdf.set_text_color(0, 0, 0)
     pdf.ln(6)
     
-    # Threat
     pdf.set_font("Times", "", 11)
-    pdf.write(5, "High-Level Threat:  ")
-    pdf.write(5, sitrep.get("bluf_threat", "Assessment pending."))
-    pdf.ln(6)
-    
-    # Casualties
-    pdf.write(5, "Casualty / SOS Overview:  ")
-    pdf.write(5, sitrep.get("casualty_count", "None."))
-    pdf.ln(8)
-    
+    pdf.multi_cell(0, 5, f"Threat: {sitrep['bluf_threat']}")
+    pdf.ln(2)
+    pdf.cell(0, 5, f"Casualties: {sitrep['casualty_count']}", ln=1)
+    pdf.cell(0, 5, f"Evacuation: {sitrep.get('evac_stat', 'N/A')}", ln=1)
+    pdf.ln(4)
     pdf.line(10, pdf.get_y(), 200, pdf.get_y())
     pdf.ln(5)
 
-    # --- SECTION 2: INTELLIGENCE & SENSORS ---
+    # --- 2. INTELLIGENCE ---
     pdf.set_font("Times", "B", 12)
     pdf.cell(0, 6, "2. INTELLIGENCE & SENSORS", ln=1)
-    pdf.set_font("Times", "I", 10)
-    pdf.cell(0, 5, "(Sensor Fusion & AI Assessment)", ln=1)
     pdf.ln(2)
-    
     pdf.set_font("Times", "", 11)
-    # Bullets
-    pdf.cell(5, 5, "-", ln=0)
-    pdf.cell(0, 5, f"Meteorological:  {sitrep.get('weather_rain', 'No Data')}", ln=1)
-    pdf.cell(5, 5, "-", ln=0)
-    pdf.cell(0, 5, f"Geospatial AI:  Landslide Risk Probability {sitrep.get('risk_prob', 'Low')}", ln=1)
-    pdf.cell(5, 5, "-", ln=0)
-    pdf.multi_cell(0, 5, f"Aerial Reconnaissance:  {sitrep.get('drone_intel', 'UAV Standby')}")
-    pdf.ln(5)
-    
+    pdf.cell(0, 5, f"- Met: {sitrep['weather_rain']}", ln=1)
+    pdf.cell(0, 5, f"- Hydro: {sitrep.get('river_level', 'N/A')}", ln=1)
+    pdf.cell(0, 5, f"- Geo: {sitrep.get('geo_intel', 'N/A')}", ln=1)
+    pdf.multi_cell(0, 5, f"- Aerial: {sitrep['drone_intel']}")
+    pdf.ln(4)
     pdf.line(10, pdf.get_y(), 200, pdf.get_y())
     pdf.ln(5)
 
-    # --- SECTION 3: OPERATIONS & DECISIONS ---
+    # --- 3. OPS ---
     pdf.set_font("Times", "B", 12)
-    pdf.cell(0, 6, "3. OPERATIONS & DECISIONS", ln=1)
-    pdf.set_font("Times", "I", 10)
-    pdf.cell(0, 5, "(Command & Control Status)", ln=1)
+    pdf.cell(0, 6, "3. OPERATIONS", ln=1)
     pdf.ln(2)
-    
     pdf.set_font("Times", "", 11)
-    pdf.cell(5, 5, "-", ln=0)
-    pdf.multi_cell(0, 5, f"Completed Actions:  {sitrep.get('completed_action', 'None')}")
-    
-    pdf.cell(5, 5, "-", ln=0)
-    pdf.write(5, "Pending Command Authorization:  ")
-    # Highlight pending
-    if "None" not in sitrep.get('pending_decision', 'None'):
-        pdf.set_font("Times", "B", 11)
-    pdf.write(5, sitrep.get('pending_decision', 'None'))
-    pdf.set_font("Times", "", 11)
-    pdf.ln(8)
-    
+    pdf.multi_cell(0, 5, f"- Completed: {sitrep['completed_action']}")
+    pdf.ln(2)
+    if "None" not in sitrep['pending_decision']: pdf.set_text_color(200, 100, 0)
+    pdf.multi_cell(0, 5, f"- Pending: {sitrep['pending_decision']}")
+    pdf.set_text_color(0, 0, 0)
+    pdf.ln(4)
     pdf.line(10, pdf.get_y(), 200, pdf.get_y())
     pdf.ln(5)
 
-    # --- SECTION 4: LOGISTICS & RESOURCES ---
+    # --- 4. LOGISTICS ---
     pdf.set_font("Times", "B", 12)
     pdf.cell(0, 6, "4. LOGISTICS & RESOURCES", ln=1)
-    pdf.set_font("Times", "I", 10)
-    pdf.cell(0, 5, "(Resource Readiness Snapshot)", ln=1)
     pdf.ln(2)
-    
     pdf.set_font("Times", "", 11)
-    pdf.cell(5, 5, "-", ln=0)
-    pdf.cell(0, 5, f"Teams Deployed:  {sitrep.get('teams_deployed', '0')} NDRF Units Active", ln=1)
-    pdf.cell(5, 5, "-", ln=0)
-    pdf.cell(0, 5, f"Supplies Status:  {sitrep.get('supplies_fuel', 'Calculating...')}", ln=1)
-    pdf.ln(5)
-    
+    pdf.cell(0, 5, f"- Personnel: {sitrep['teams_deployed']}", ln=1)
+    pdf.cell(0, 5, f"- Assets: {sitrep['supplies_fuel']}", ln=1)
+    pdf.cell(0, 5, f"- Stockpile: {sitrep.get('ration_stat', 'N/A')}", ln=1)
+    pdf.ln(4)
     pdf.line(10, pdf.get_y(), 200, pdf.get_y())
     pdf.ln(5)
 
-    # --- SECTION 5: COMMUNICATIONS ---
+    # --- 5. COMMS ---
     pdf.set_font("Times", "B", 12)
-    pdf.cell(0, 6, "5. COMMUNICATIONS & NETWORK HEALTH", ln=1)
-    pdf.set_font("Times", "I", 10)
-    pdf.cell(0, 5, "(Resilience & Connectivity)", ln=1)
+    pdf.cell(0, 6, "5. COMMUNICATIONS", ln=1)
     pdf.ln(2)
-    
     pdf.set_font("Times", "", 11)
-    pdf.cell(5, 5, "-", ln=0)
-    pdf.cell(0, 5, f"Backbone Connectivity:  {sitrep.get('internet_status', 'Unknown')}", ln=1)
-    pdf.cell(5, 5, "-", ln=0)
-    pdf.cell(0, 5, f"Emergency Mesh Network:  {sitrep.get('mesh_status', 'Unknown')}", ln=1)
-    pdf.cell(5, 5, "-", ln=0)
-    pdf.cell(0, 5, f"Message Propagation:  {sitrep.get('packets_relayed', '0')} relayed", ln=1)
+    pdf.cell(0, 5, f"- Backbone: {sitrep['internet_status']}", ln=1)
+    pdf.cell(0, 5, f"- Mesh: {sitrep['mesh_status']}", ln=1)
     pdf.ln(10)
-    
+
     # --- FOOTER ---
+    pdf.set_font("Times", "B", 10)
+    pdf.cell(0, 5, "DISTRIBUTION:", ln=1)
+    pdf.set_font("Times", "", 9)
+    pdf.cell(0, 4, "1. PMO (Prime Minister's Office)", ln=1)
+    pdf.cell(0, 4, "2. MHA (Ministry of Home Affairs) - Control Room", ln=1)
+    pdf.cell(0, 4, "3. NDMA (National Disaster Management Authority)", ln=1)
+    pdf.cell(0, 4, "4. Chief Secretary, Govt of Assam", ln=1)
+    
     pdf.set_y(-30)
     pdf.set_font("Times", "B", 10)
     pdf.cell(0, 5, "FOR OFFICIAL USE ONLY", ln=1, align='C')
-    
-    pdf.set_font("Times", "", 8)
-    pdf.cell(0, 4, "Auto-generated by DRISHTI-NE", ln=1, align='C')
-    pdf.cell(0, 4, "AI-Powered Disaster Decision Support System", ln=1, align='C')
-    pdf.cell(0, 4, "(Government Pilot Mode)", ln=1, align='C')
+    pdf.set_font("Times", "I", 8)
+    pdf.cell(0, 4, f"Generated by DRISHTI-NE | SysID: {uuid.uuid4().hex[:8]}", ln=1, align='C')
 
     # 4. Output
     try:
         return Response(
             content=bytes(pdf.output()), 
             media_type="application/pdf", 
-            headers={"Content-Disposition": f"attachment; filename=SITREP_GOV_{datetime.now().strftime('%d%H%M')}.pdf"}
+            headers={"Content-Disposition": f"attachment; filename=SITREP_{sitrep['dtg']}.pdf"}
         )
     except TypeError:
         return Response(
             content=pdf.output(dest='S').encode('latin-1'),
             media_type="application/pdf", 
-            headers={"Content-Disposition": f"attachment; filename=SITREP_GOV_{datetime.now().strftime('%d%H%M')}.pdf"}
+            headers={"Content-Disposition": f"attachment; filename=SITREP_{sitrep['dtg']}.pdf"}
         )
-    
-    def draw_row(label, value, bold_val=False):
-        pdf.set_font("Arial", "B", 10)
-        pdf.cell(col_w, row_h, clean_text(label), border=1)
-        pdf.set_font("Arial", "B" if bold_val else "", 10)
-        
-        # Risk Coloring (Text Only - FPDF1.7 compatible)
-        if "HIGH" in str(value) or "CRITICAL" in str(value):
-            pdf.set_text_color(200, 0, 0)
-        elif "APPROVED" in str(value) or "LOW" in str(value):
-            pdf.set_text_color(0, 100, 0)
-        else:
-            pdf.set_text_color(0, 0, 0)
-            
-        pdf.cell(0, row_h, clean_text(str(value)), border=1, ln=1)
-        pdf.set_text_color(0, 0, 0) # Reset
-
-    draw_row("Route ID", route_id)
-    draw_row("Total Distance", distance_text)
-    draw_row("Risk Classification", risk_level, bold_val=True)
-    draw_row("Command Decision", auth_decision, bold_val=True)
-    pdf.ln(5)
-
-    # --- METADATA ---
-    pdf.set_font("Arial", "B", 12)
-    pdf.cell(0, 8, clean_text("3. AUTHORIZATION METADATA"), ln=1, fill=True)
-    pdf.ln(2)
-    
-    draw_row("Authorized By", auth_name)
-    draw_row("Decision Time", date_pretty)
-    draw_row("Report Generated", date_pretty)
-    
-    # --- FOOTER (Rubber Stamp) ---
-    pdf.set_y(-40)
-    pdf.set_font("Arial", "B", 14)
-    pdf.set_text_color(200, 0, 0) 
-    pdf.cell(0, 10, clean_text("CLASSIFICATION: RESTRICTED"), ln=1, align="C")
-    
-    pdf.set_font("Arial", "I", 8)
-    pdf.set_text_color(100, 100, 100)
-    pdf.cell(0, 5, clean_text("This document contains sensitive operational data generated by the Drishti-NE System."), ln=1, align="C")
-    pdf.cell(0, 5, clean_text("For Official Government Use Only."), ln=1, align="C")
-
-    # 4. Output
-    try:
-        # FPDF2
-        pdf_bytes = bytes(pdf.output()) 
-    except TypeError:
-        # Legacy FPDF 1.7
-        pdf_bytes = pdf.output(dest='S').encode('latin-1')
-    except Exception as e:
-        traceback.print_exc()
-        return JSONResponse(status_code=500, content={"status": "error", "message": "PDF Generation Failed"})
-
-    return Response(content=pdf_bytes, media_type="application/pdf", headers={"Content-Disposition": f"attachment; filename=SITREP_{file_slug_time}.pdf"})
 
 
 def build_sitrep_html(sitrep: dict, stats: dict, resources: list, audit_logs: list, pending_decisions: list) -> str:
     """Render an HTML SITREP (print/save ready). Adapted for Clean Payload."""
     # (HTML Generation Logic - kept same for brevity, assuming PDF is priority)
-    # ... [Keep your existing HTML builder code here] ...
     return "<html><body>HTML View Not Updated - Please Use PDF Download</body></html>"
 
 
