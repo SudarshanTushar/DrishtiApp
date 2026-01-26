@@ -6,6 +6,7 @@ import os
 import requests
 import random
 import uuid
+import gc
 import traceback 
 from datetime import datetime, timezone, timedelta 
 from zoneinfo import ZoneInfo
@@ -43,7 +44,18 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-predictor = LandslidePredictor()
+# --- MEMORY OPTIMIZATION: LAZY LOADER ---
+# Instead of loading the heavy AI model immediately, we load it only when needed.
+global_predictor = None
+
+def get_ai_model():
+    """Loads the AI model on-demand to save RAM on startup (Heroku R14 Fix)."""
+    global global_predictor
+    if global_predictor is None:
+        print("⚡ Loading Landslide AI Model into Memory...")
+        global_predictor = LandslidePredictor()
+    return global_predictor
+
 PENDING_DECISIONS = []
 
 
@@ -375,8 +387,12 @@ def _sitrep_pdf_response(api_key: Optional[str], authorization: Optional[str]):
 
     # 4. Output
     try:
+        pdf_bytes = bytes(pdf.output()) 
+        del pdf
+        gc.collect() # Force memory cleanup for Heroku R14
+        
         return Response(
-            content=bytes(pdf.output()), 
+            content=pdf_bytes, 
             media_type="application/pdf", 
             headers={"Content-Disposition": f"attachment; filename=SITREP_{sitrep['dtg']}.pdf"}
         )
@@ -635,7 +651,11 @@ def analyze_route(start_lat: float, start_lng: float, end_lat: float, end_lng: f
             if rain_sensor: rain_input = float(rain_sensor['value'])
             if rain_input == 0: rain_input = 15
         except: rain_input = 50
-    ai_result = predictor.predict(rain_input, start_lat, start_lng)
+    
+    # --- LAZY LOADING FIX: Only load AI Model now ---
+    ai_model = get_ai_model()
+    ai_result = ai_model.predict(rain_input, start_lat, start_lng)
+    
     landslide_score = ai_result["ai_score"]
     slope_angle = ai_result["slope_angle"]
     soil_type = ai_result["soil_type"]
