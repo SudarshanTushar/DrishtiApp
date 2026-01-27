@@ -17,7 +17,7 @@ from pydantic import BaseModel
 from typing import Optional
 from fpdf import FPDF
 
-# MODULES
+# --- EXISTING MODULES ---
 from intelligence.resources import ResourceSentinel
 from intelligence.governance import SafetyGovernance, DecisionEngine
 from intelligence.risk_model import LandslidePredictor
@@ -31,38 +31,40 @@ from intelligence.vision import VisionEngine
 from intelligence.audit import AuditLogger
 from intelligence.security import SecurityGate
 
+# --- DB IMPORTS ---
 from db.session import SessionLocal, engine, Base
 from db.models import Route, AuthorityDecision
 
+# 🔥 [NEW] IMPORT THE AI WAR ROOM ROUTER & SENTINEL
+# This connects your new DistilBERT logic (routing.py) to the main server
+from core.routing import router as ai_war_room_router
+from core.routing import DistilBERTSentinel  
+
 app = FastAPI(title="RouteAI-NE Government Backend")
 
+# ---------------------------------------------------------
+# 1. CORS POLICY (THE GOLDEN KEY)
+# ---------------------------------------------------------
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=["*"],  # Allows Vercel, Localhost, Mobile Apps
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
 # ---------------------------------------------------------
-# MEMORY OPTIMIZATION: LAZY LOAD AI MODEL
+# 2. MOUNT THE NEW AI WEAPON
 # ---------------------------------------------------------
-# Global variable to hold the model (starts as None)
-global_predictor = None
+# This exposes endpoints at: /api/v1/core/analyze-route
+app.include_router(ai_war_room_router)
 
-def get_ai_model():
-    """
-    Loads the AI model on-demand. 
-    This prevents Heroku R14 (Memory Exceeded) errors on startup.
-    """
-    global global_predictor
-    if global_predictor is None:
-        print("⚡ Loading Landslide AI Model into Memory...")
-        global_predictor = LandslidePredictor()
-    return global_predictor
 
-PENDING_DECISIONS = []
-
+# ---------------------------------------------------------
+# 3. SMART STARTUP (PRE-LOAD MODELS)
+# ---------------------------------------------------------
+# Global variable for the Numeric Model (Legacy/Scientific)
+global_numeric_predictor = None
 
 def ensure_db_ready():
     """Create PostGIS extension and tables if they are missing."""
@@ -73,6 +75,45 @@ def ensure_db_ready():
     except Exception as e:
         print(f"DB Warning: {e}")
 
+@app.on_event("startup")
+async def startup_event():
+    """
+    WAR ROOM PROTOCOL:
+    1. Initialize DB.
+    2. Trigger AI Model Download immediately (so demo doesn't lag).
+    """
+    print("🚀 [SYSTEM] Booting RouteAI-NE Command Center...")
+    
+    # A. Setup Database
+    ensure_db_ready()
+    
+    # B. Trigger DistilBERT Download (Background)
+    # This ensures the 250MB file is downloaded/loaded NOW, not later.
+    try:
+        print("⚡ [AI CORE] Pre-loading Semantic Sentinel (DistilBERT)...")
+        DistilBERTSentinel.get_instance() 
+    except Exception as e:
+        print(f"⚠️ [AI WARNING] Semantic Model Delayed: {e}")
+
+    print("✅ [SYSTEM] Ready for Operations.")
+
+def get_numeric_model():
+    """
+    Loads the NUMERIC (Scientific) model on-demand.
+    Used for the legacy /analyze endpoint.
+    """
+    global global_numeric_predictor
+    if global_numeric_predictor is None:
+        print("📊 [SCIENTIFIC] Loading Numeric Landslide Predictor...")
+        global_numeric_predictor = LandslidePredictor()
+    return global_numeric_predictor
+
+PENDING_DECISIONS = []
+
+
+# ---------------------------------------------------------
+# EXISTING LOGIC (PRESERVED)
+# ---------------------------------------------------------
 
 def get_latest_route_and_decision(session):
     """Fetch the latest route and its latest decision; seed defaults if none exist."""
@@ -269,6 +310,9 @@ def _sitrep_pdf_response(api_key: Optional[str], authorization: Optional[str]):
             sitrep = build_sitrep_payload(latest_route, latest_decision)
     except Exception:
         return JSONResponse(status_code=503, content={"status": "error", "message": "Data Unavailable"})
+
+    if not sitrep:
+         return JSONResponse(status_code=503, content={"status": "error", "message": "No Route Data Found"})
 
     # 2. PDF Setup
     pdf = FPDF()
@@ -655,6 +699,11 @@ def get_iot_feed():
 
 @app.get("/analyze")
 def analyze_route(start_lat: float, start_lng: float, end_lat: float, end_lng: float, rain_input: Optional[int] = None):
+    """
+    [SCIENTIFIC MODE]
+    Legacy Endpoint that uses the Mathematical/Numeric Model.
+    Kept for 'Scientific Accuracy' comparisons in the demo.
+    """
     # (Keeping the massive Analyze logic from user provided file for safety)
     if rain_input is None or rain_input == 0:
         try:
@@ -664,8 +713,8 @@ def analyze_route(start_lat: float, start_lng: float, end_lat: float, end_lng: f
             if rain_input == 0: rain_input = 15
         except: rain_input = 50
     
-    # --- LAZY LOADING: ONLY LOAD AI NOW TO SAVE MEMORY ---
-    ai_model = get_ai_model()
+    # --- LAZY LOADING: LOAD SCIENTIFIC MODEL ---
+    ai_model = get_numeric_model()
     ai_result = ai_model.predict(rain_input, start_lat, start_lng)
     
     landslide_score = ai_result["ai_score"]
