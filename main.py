@@ -6,7 +6,7 @@ import os
 import requests
 import random
 import uuid
-import gc
+import gc  # Added for memory management
 import traceback 
 from datetime import datetime, timezone, timedelta 
 from zoneinfo import ZoneInfo
@@ -44,12 +44,17 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# --- MEMORY OPTIMIZATION: LAZY LOADER ---
-# Instead of loading the heavy AI model immediately, we load it only when needed.
+# ---------------------------------------------------------
+# MEMORY OPTIMIZATION: LAZY LOAD AI MODEL
+# ---------------------------------------------------------
+# Global variable to hold the model (starts as None)
 global_predictor = None
 
 def get_ai_model():
-    """Loads the AI model on-demand to save RAM on startup (Heroku R14 Fix)."""
+    """
+    Loads the AI model on-demand. 
+    This prevents Heroku R14 (Memory Exceeded) errors on startup.
+    """
     global global_predictor
     if global_predictor is None:
         print("⚡ Loading Landslide AI Model into Memory...")
@@ -387,9 +392,11 @@ def _sitrep_pdf_response(api_key: Optional[str], authorization: Optional[str]):
 
     # 4. Output
     try:
+        # FPDF2 bytes
         pdf_bytes = bytes(pdf.output()) 
+        # Clean memory immediately
         del pdf
-        gc.collect() # Force memory cleanup for Heroku R14
+        gc.collect() 
         
         return Response(
             content=pdf_bytes, 
@@ -397,6 +404,7 @@ def _sitrep_pdf_response(api_key: Optional[str], authorization: Optional[str]):
             headers={"Content-Disposition": f"attachment; filename=SITREP_{sitrep['dtg']}.pdf"}
         )
     except TypeError:
+        # Fallback for older FPDF
         return Response(
             content=pdf.output(dest='S').encode('latin-1'),
             media_type="application/pdf", 
@@ -537,6 +545,10 @@ def generate_sitrep(api_key: Optional[str] = None, authorization: Optional[str] 
         token = authorization.replace("Bearer ", "")
     elif api_key:
         token = api_key
+    # Allow Direct Link Download via API Key
+    if not token and api_key:
+        token = api_key
+        
     if token != "NDRF-COMMAND-2026-SECURE":
         return JSONResponse(status_code=403, content={"status": "error", "message": "Unauthorized"})
 
@@ -652,7 +664,7 @@ def analyze_route(start_lat: float, start_lng: float, end_lat: float, end_lng: f
             if rain_input == 0: rain_input = 15
         except: rain_input = 50
     
-    # --- LAZY LOADING FIX: Only load AI Model now ---
+    # --- LAZY LOADING: ONLY LOAD AI NOW TO SAVE MEMORY ---
     ai_model = get_ai_model()
     ai_result = ai_model.predict(rain_input, start_lat, start_lng)
     
